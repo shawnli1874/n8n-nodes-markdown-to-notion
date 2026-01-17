@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-01-17
+
+### 🐛 Fixed - Runtime Loading Error
+
+#### Bug Fixes
+- **Fixed `convertMarkdownToNotionBlocks is not a function`** in n8n runtime
+  - Removed stray compiled files (`dist/MarkdownToNotion.node.js`, `.d.ts`)
+  - Ensured n8n loads the correct file: `dist/nodes/MarkdownToNotion/MarkdownToNotion.node.js`
+  - Adjusted `files` array to only publish `dist/nodes` and `dist/credentials`
+
+#### Verification
+- ✅ Node loads correctly via `package.json` `n8n.nodes` entry
+- ✅ Method `convertMarkdownToNotionBlocks` present and callable
+- ✅ All 16+ block types still supported (including toggle)
+- ✅ All tests pass
+
+### 📌 Note
+Root-level `dist/MarkdownToNotion.node.js` was being pulled by n8n and lacked the method. Package contents are now clean and scoped to the correct compiled node.
+
 ## [1.2.1] - 2026-01-17
 
 ### 🐛 Fixed - Critical Runtime Error
