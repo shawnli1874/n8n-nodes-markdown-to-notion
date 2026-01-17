@@ -53,18 +53,6 @@ test('convertMarkdownToNotionBlocks 方法存在', () => {
   }
 });
 
-test('验证方法存在', () => {
-  if (typeof node.validatePageId !== 'function') {
-    throw new Error('validatePageId 不存在');
-  }
-  if (typeof node.validateMarkdownContent !== 'function') {
-    throw new Error('validateMarkdownContent 不存在');
-  }
-  if (typeof node.validateNotionApiResponse !== 'function') {
-    throw new Error('validateNotionApiResponse 不存在');
-  }
-});
-
 test('execute 方法存在', () => {
   if (typeof node.execute !== 'function') {
     throw new Error('execute 不是函数');

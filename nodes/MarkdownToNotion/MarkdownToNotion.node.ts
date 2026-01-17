@@ -153,8 +153,30 @@ export class MarkdownToNotion implements INodeType {
 				};
 
 			if (operation === 'appendToPage') {
-				(this as any).validatePageId(pageId, i, this);
-				(this as any).validateMarkdownContent(markdownContent, i, this);
+				if (!pageId || !pageId.trim()) {
+					throw new NodeOperationError(
+						this.getNode(),
+						'Page ID is required and cannot be empty.',
+						{ itemIndex: i }
+					);
+				}
+
+				const cleanPageId = pageId.replace(/-/g, '');
+				if (!/^[a-f0-9]{32}$/i.test(cleanPageId)) {
+					throw new NodeOperationError(
+						this.getNode(),
+						'Invalid Page ID format. Expected a UUID (32 or 36 characters). You can find the Page ID in the Notion page URL.',
+						{ itemIndex: i }
+					);
+				}
+
+				if (!markdownContent || !markdownContent.trim()) {
+					throw new NodeOperationError(
+						this.getNode(),
+						'Markdown content is required and cannot be empty.',
+						{ itemIndex: i }
+					);
+				}
 
 				const blocks = await (this as any).convertMarkdownToNotionBlocks(
 					markdownContent,
@@ -177,7 +199,21 @@ export class MarkdownToNotion implements INodeType {
 					requestOptions,
 				);
 
-				(this as any).validateNotionApiResponse(response, i, this);
+				if (!response || typeof response !== 'object') {
+					throw new NodeOperationError(
+						this.getNode(),
+						`Unexpected Notion API response: ${JSON.stringify(response)}`,
+						{ itemIndex: i }
+					);
+				}
+
+				if (response.object === 'error') {
+					throw new NodeOperationError(
+						this.getNode(),
+						`Notion API error: ${response.message || 'Unknown error'}`,
+						{ itemIndex: i }
+					);
+				}
 
 				returnData.push({
 					json: {
@@ -770,52 +806,5 @@ export class MarkdownToNotion implements INodeType {
 				children: children
 			}
 		};
-	}
-
-	private validatePageId(pageId: string, itemIndex: number, context: IExecuteFunctions): void {
-		if (!pageId || !pageId.trim()) {
-			throw new NodeOperationError(
-				context.getNode(),
-				'Page ID is required and cannot be empty.',
-				{ itemIndex }
-			);
-		}
-
-		const cleanPageId = pageId.replace(/-/g, '');
-		if (!/^[a-f0-9]{32}$/i.test(cleanPageId)) {
-			throw new NodeOperationError(
-				context.getNode(),
-				'Invalid Page ID format. Expected a UUID (32 or 36 characters). You can find the Page ID in the Notion page URL.',
-				{ itemIndex }
-			);
-		}
-	}
-
-	private validateMarkdownContent(markdownContent: string, itemIndex: number, context: IExecuteFunctions): void {
-		if (!markdownContent || !markdownContent.trim()) {
-			throw new NodeOperationError(
-				context.getNode(),
-				'Markdown content is required and cannot be empty.',
-				{ itemIndex }
-			);
-		}
-	}
-
-	private validateNotionApiResponse(response: any, itemIndex: number, context: IExecuteFunctions): void {
-		if (!response || typeof response !== 'object') {
-			throw new NodeOperationError(
-				context.getNode(),
-				`Unexpected Notion API response: ${JSON.stringify(response)}`,
-				{ itemIndex }
-			);
-		}
-
-		if (response.object === 'error') {
-			throw new NodeOperationError(
-				context.getNode(),
-				`Notion API error: ${response.message || 'Unknown error'}`,
-				{ itemIndex }
-			);
-		}
 	}
 }
