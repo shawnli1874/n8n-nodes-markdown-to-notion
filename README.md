@@ -1,7 +1,7 @@
-# n8n-nodes-markdown-notion-fixed
+# n8n-nodes-md2notion
 
-[![npm version](https://badge.fury.io/js/n8n-nodes-markdown-notion-fixed.svg)](https://badge.fury.io/js/n8n-nodes-markdown-notion-fixed)
-[![CI](https://github.com/shawnli1874/n8n-nodes-markdown-to-notion/workflows/CI/badge.svg)](https://github.com/shawnli1874/n8n-nodes-markdown-to-notion/actions)
+[![npm version](https://badge.fury.io/js/n8n-nodes-md2notion.svg)](https://badge.fury.io/js/n8n-nodes-md2notion)
+[![CI](https://github.com/shawnli1874/n8n-nodes-md2notion/workflows/CI/badge.svg)](https://github.com/shawnli1874/n8n-nodes-md2notion/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A custom n8n node that converts markdown content to Notion page blocks with **proper formula handling**.
@@ -23,13 +23,13 @@ Existing n8n community nodes for markdown-to-Notion conversion have a critical f
 
 1. Open your n8n instance
 2. Go to **Settings** → **Community Nodes**
-3. Enter package name: `n8n-nodes-markdown-notion-fixed`
+3. Enter package name: `n8n-nodes-md2notion`
 4. Click **Install**
 
 **Option 2: Install via npm**
 
 ```bash
-npm install -g n8n-nodes-markdown-notion-fixed
+npm install -g n8n-nodes-md2notion
 ```
 
 ### Setup
@@ -220,7 +220,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🔗 Links
 
-- [npm Package](https://www.npmjs.com/package/n8n-nodes-markdown-notion-fixed)
+- [npm Package](https://www.npmjs.com/package/n8n-nodes-md2notion)
 - [GitHub Repository](https://github.com/shawnli1874/n8n-nodes-markdown-to-notion)
 - [Issue Tracker](https://github.com/shawnli1874/n8n-nodes-markdown-to-notion/issues)
 - [Changelog](CHANGELOG.md)

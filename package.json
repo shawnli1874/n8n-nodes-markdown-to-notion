@@ -1,5 +1,5 @@
 {
-  "name": "n8n-nodes-markdown-notion-fixed",
+  "name": "n8n-nodes-md2notion",
   "version": "1.0.0",
   "description": "Convert markdown to Notion pages with proper math formula handling - fixes common formula conversion errors in existing community nodes",
   "keywords": [
@@ -14,17 +14,17 @@
     "blocks"
   ],
   "license": "MIT",
-  "homepage": "https://github.com/shawnli1874/n8n-nodes-markdown-to-notion",
+  "homepage": "https://github.com/shawnli1874/n8n-nodes-md2notion",
   "author": {
     "name": "Shawn Li",
     "email": "shawnli1874@gmail.com"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/shawnli1874/n8n-nodes-markdown-to-notion.git"
+    "url": "git+https://github.com/shawnli1874/n8n-nodes-md2notion.git"
   },
   "bugs": {
-    "url": "https://github.com/shawnli1874/n8n-nodes-markdown-to-notion/issues"
+    "url": "https://github.com/shawnli1874/n8n-nodes-md2notion/issues"
   },
   "main": "index.js",
   "scripts": {
@@ -34,7 +34,7 @@
     "lint": "echo 'Linting passed'",
     "format": "echo 'Formatting completed'",
     "prepublishOnly": "npm run build && npm test",
-    "postinstall": "echo 'n8n-nodes-markdown-to-notion installed successfully!'"
+    "postinstall": "echo 'n8n-nodes-md2notion installed successfully!'"
   },
   "files": [
     "dist",
