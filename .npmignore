@@ -6,10 +6,13 @@ tsconfig.json
 gulpfile.js
 
 # Test files
-core-test.js
-comprehensive-test.js
-toggle-test.js
-RELEASE-REPORT-*.md
+__tests__/
+*.test.ts
+*.test.js
+*.spec.ts
+*.spec.js
+jest.config.js
+verify-fixes.js
 
 # Development files
 .github/

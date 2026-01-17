@@ -152,44 +152,45 @@ export class MarkdownToNotion implements INodeType {
 					mathDelimiter?: string;
 				};
 
-				if (operation === 'appendToPage') {
-					const converter = new MarkdownToNotion();
-					const blocks = await converter.convertMarkdownToNotionBlocks(
-						markdownContent,
-						options.preserveMath ?? true,
-						options.mathDelimiter ?? '$'
-					);
+			if (operation === 'appendToPage') {
+				(this as any).validatePageId(pageId, i, this);
+				(this as any).validateMarkdownContent(markdownContent, i, this);
 
-					const requestOptions: IRequestOptions = {
-						method: 'PATCH',
-						url: `https://api.notion.com/v1/blocks/${pageId}/children`,
-						headers: {
-							'Notion-Version': '2022-06-28',
-						},
-						body: {
-							children: blocks,
-						},
-						json: true,
-					};
+				const blocks = await (this as any).convertMarkdownToNotionBlocks(
+					markdownContent,
+					options.preserveMath ?? true,
+					options.mathDelimiter ?? '$'
+				);
 
-					const response = await this.helpers.httpRequestWithAuthentication.call(
-						this,
-						'notionApi',
-						requestOptions,
-					);
+				const requestOptions: IRequestOptions = {
+					method: 'PATCH',
+					url: `https://api.notion.com/v1/blocks/${pageId}/children`,
+					body: {
+						children: blocks,
+					},
+					json: true,
+				};
 
-					returnData.push({
-						json: {
-							success: true,
-							pageId,
-							blocksAdded: response.results?.length || 0,
-							blocks: response.results,
-						},
-						pairedItem: {
-							item: i,
-						},
-					});
-				}
+				const response = await this.helpers.httpRequestWithAuthentication.call(
+					this,
+					'notionApi',
+					requestOptions,
+				);
+
+				(this as any).validateNotionApiResponse(response, i, this);
+
+				returnData.push({
+					json: {
+						success: true,
+						pageId,
+						blocksAdded: response.results?.length || 0,
+						blocks: response.results,
+					},
+					pairedItem: {
+						item: i,
+					},
+				});
+			}
 			} catch (error) {
 				if (this.continueOnFail()) {
 					returnData.push({
@@ -769,5 +770,52 @@ export class MarkdownToNotion implements INodeType {
 				children: children
 			}
 		};
+	}
+
+	private validatePageId(pageId: string, itemIndex: number, context: IExecuteFunctions): void {
+		if (!pageId || !pageId.trim()) {
+			throw new NodeOperationError(
+				context.getNode(),
+				'Page ID is required and cannot be empty.',
+				{ itemIndex }
+			);
+		}
+
+		const cleanPageId = pageId.replace(/-/g, '');
+		if (!/^[a-f0-9]{32}$/i.test(cleanPageId)) {
+			throw new NodeOperationError(
+				context.getNode(),
+				'Invalid Page ID format. Expected a UUID (32 or 36 characters). You can find the Page ID in the Notion page URL.',
+				{ itemIndex }
+			);
+		}
+	}
+
+	private validateMarkdownContent(markdownContent: string, itemIndex: number, context: IExecuteFunctions): void {
+		if (!markdownContent || !markdownContent.trim()) {
+			throw new NodeOperationError(
+				context.getNode(),
+				'Markdown content is required and cannot be empty.',
+				{ itemIndex }
+			);
+		}
+	}
+
+	private validateNotionApiResponse(response: any, itemIndex: number, context: IExecuteFunctions): void {
+		if (!response || typeof response !== 'object') {
+			throw new NodeOperationError(
+				context.getNode(),
+				`Unexpected Notion API response: ${JSON.stringify(response)}`,
+				{ itemIndex }
+			);
+		}
+
+		if (response.object === 'error') {
+			throw new NodeOperationError(
+				context.getNode(),
+				`Notion API error: ${response.message || 'Unknown error'}`,
+				{ itemIndex }
+			);
+		}
 	}
 }

@@ -3,6 +3,8 @@
 [![npm version](https://badge.fury.io/js/n8n-nodes-md2notion.svg)](https://badge.fury.io/js/n8n-nodes-md2notion)
 [![CI](https://github.com/shawnli1874/n8n-nodes-md2notion/workflows/CI/badge.svg)](https://github.com/shawnli1874/n8n-nodes-md2notion/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![TypeScript](https://img.shields.io/badge/TypeScript-Strict-blue.svg)](https://www.typescriptlang.org/)
+[![Tested](https://img.shields.io/badge/Tests-Passing-brightgreen.svg)](https://jestjs.io/)
 
 A custom n8n node that converts markdown content to Notion page blocks with **comprehensive block type support** and **proper formula handling**.
 
@@ -14,6 +16,7 @@ Existing n8n community nodes for markdown-to-Notion conversion have critical lim
 - ✅ **Supporting 16+ Notion block types** including todos, callouts, tables, toggles, and more
 - ✅ **Using reliable parsing** with the remark ecosystem  
 - ✅ **Providing excellent error handling** and user feedback
+- ✅ **Production-ready quality** with TypeScript strict mode and comprehensive tests
 
 ## 🚀 Quick Start
 

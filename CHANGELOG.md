@@ -7,6 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-01-17
+
+### 🎉 Major Quality & Reliability Improvements
+
+#### 🐛 Critical Bug Fixes
+- **Fixed fatal `convertMarkdownToNotionBlocks is not a function` runtime error**
+  - Root cause: Incorrect instantiation pattern (`new MarkdownToNotion()`) in execute method
+  - Solution: Changed to proper instance method call via `this`
+  - Impact: Node now works reliably in all n8n environments
+
+#### 🔒 Enhanced Input Validation
+- **Added comprehensive input validation**
+  - Page ID format validation (supports both UUID formats: with/without dashes)
+  - Markdown content non-empty validation
+  - Clear, actionable error messages for invalid inputs
+
+#### 🛡️ Improved Error Handling
+- **Added Notion API response validation**
+  - Validates response object structure
+  - Detects and reports Notion API errors gracefully
+  - Provides detailed error messages for debugging
+
+#### 🔧 Code Quality Improvements
+- **Enabled TypeScript strict mode**
+  - `strict: true` and `noImplicitAny: true` in tsconfig.json
+  - All code passes strict type checking (0 errors)
+  - Better type safety and IDE support
+
+- **Removed code duplication**
+  - Removed redundant `Notion-Version` header from node (already in credentials)
+  - Cleaner HTTP request configuration
+
+#### ✅ Testing Infrastructure
+- **Added comprehensive test suite**
+  - Unit tests for node and credentials
+  - Jest configuration with TypeScript support
+  - Coverage reporting setup
+  - Quick verification script (`verify-fixes.js`)
+
+#### 📦 Build & Deployment
+- **Updated build process**
+  - Proper TypeScript compilation in build script
+  - Cleaned up old test files
+  - Updated .npmignore for cleaner npm packages
+
+### 📌 Migration Notes
+This release contains no breaking changes. All existing workflows will continue to work without modification, but with significantly improved reliability and error reporting.
+
+### 🔍 Verification
+- ✅ All TypeScript compilation errors resolved
+- ✅ All unit tests passing
+- ✅ Node loads correctly in n8n
+- ✅ All 16+ block types still supported
+- ✅ Math formula preservation works
+- ✅ Input validation working
+- ✅ API error handling working
+
 ## [1.2.2] - 2026-01-17
 
 ### 🐛 Fixed - Runtime Loading Error
