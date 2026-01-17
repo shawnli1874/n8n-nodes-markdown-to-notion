@@ -1,7 +1,7 @@
 # n8n-nodes-markdown-to-notion
 
 [![npm version](https://badge.fury.io/js/n8n-nodes-markdown-to-notion.svg)](https://badge.fury.io/js/n8n-nodes-markdown-to-notion)
-[![CI](https://github.com/your-username/n8n-nodes-markdown-to-notion/workflows/CI/badge.svg)](https://github.com/your-username/n8n-nodes-markdown-to-notion/actions)
+[![CI](https://github.com/shawnli1874/n8n-nodes-markdown-to-notion/workflows/CI/badge.svg)](https://github.com/shawnli1874/n8n-nodes-markdown-to-notion/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A custom n8n node that converts markdown content to Notion page blocks with **proper formula handling**.
@@ -137,7 +137,7 @@ But remember, a coffee costs $5 at the local café.
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/n8n-nodes-markdown-to-notion.git
+git clone https://github.com/shawnli1874/n8n-nodes-markdown-to-notion.git
 cd n8n-nodes-markdown-to-notion
 
 # Install dependencies
@@ -221,8 +221,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 🔗 Links
 
 - [npm Package](https://www.npmjs.com/package/n8n-nodes-markdown-to-notion)
-- [GitHub Repository](https://github.com/your-username/n8n-nodes-markdown-to-notion)
-- [Issue Tracker](https://github.com/your-username/n8n-nodes-markdown-to-notion/issues)
+- [GitHub Repository](https://github.com/shawnli1874/n8n-nodes-markdown-to-notion)
+- [Issue Tracker](https://github.com/shawnli1874/n8n-nodes-markdown-to-notion/issues)
 - [Changelog](CHANGELOG.md)
 - [Contributing Guide](CONTRIBUTING.md)
 
