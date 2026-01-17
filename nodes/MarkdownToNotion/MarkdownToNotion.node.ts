@@ -153,7 +153,8 @@ export class MarkdownToNotion implements INodeType {
 				};
 
 				if (operation === 'appendToPage') {
-					const blocks = await this.convertMarkdownToNotionBlocks(
+					const converter = new MarkdownToNotion();
+					const blocks = await converter.convertMarkdownToNotionBlocks(
 						markdownContent,
 						options.preserveMath ?? true,
 						options.mathDelimiter ?? '$'
