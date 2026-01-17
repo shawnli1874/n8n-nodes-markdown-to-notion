@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-md2notion",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "description": "Convert markdown to Notion pages with proper math formula handling - fixes common formula conversion errors in existing community nodes",
   "keywords": [
     "n8n-community-node-package",

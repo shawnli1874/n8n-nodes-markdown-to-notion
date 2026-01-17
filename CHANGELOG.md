@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-01-17
+
+### 🐛 Critical Hotfix
+
+- **Fixed `this.validatePageId is not a function` runtime error**
+  - Root cause: Validation methods were class private methods but called in execute context where `this` is bound to `IExecuteFunctions`
+  - Solution: Inlined all validation logic directly into the execute method
+  - Impact: Node now works correctly in all n8n runtime environments
+
+### 📌 Notes
+This is a critical hotfix for v1.3.0. All users should update immediately if experiencing the `validatePageId is not a function` error.
+
 ## [1.3.0] - 2026-01-17
 
 ### 🎉 Major Quality & Reliability Improvements
