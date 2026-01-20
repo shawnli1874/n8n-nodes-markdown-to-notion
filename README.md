@@ -6,16 +6,18 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-Strict-blue.svg)](https://www.typescriptlang.org/)
 [![Tested](https://img.shields.io/badge/Tests-Passing-brightgreen.svg)](https://jestjs.io/)
 
-A custom n8n node that converts markdown content to Notion page blocks with **comprehensive block type support** and **proper formula handling**.
+A custom n8n node that converts markdown content to Notion page blocks with **advanced chunking**, **comprehensive error handling**, and **support for large documents**.
 
 ## 🎯 Why This Node?
 
-Existing n8n community nodes for markdown-to-Notion conversion have critical limitations: they incorrectly handle inline math formulas like `$E = mc^2$` and support only basic block types. This node **solves these problems** by:
+Existing n8n community nodes for markdown-to-Notion conversion have critical limitations: they fail with large documents, provide poor error messages, and don't handle complex content properly. This node **solves these problems** by:
 
+- ✅ **Automatic chunking** for large documents (handles 100+ blocks seamlessly)
+- ✅ **Advanced error handling** with detailed, actionable error messages  
 - ✅ **Preserving math formulas** exactly as written (inline and block)
 - ✅ **Supporting 16+ Notion block types** including todos, callouts, tables, toggles, and more
-- ✅ **Using reliable parsing** with the remark ecosystem  
-- ✅ **Providing excellent error handling** and user feedback
+- ✅ **Content validation** with automatic truncation for oversized content
+- ✅ **Progress tracking** showing chunks processed and blocks added
 - ✅ **Production-ready quality** with TypeScript strict mode and comprehensive tests
 
 ## 🚀 Quick Start
@@ -59,14 +61,39 @@ npm install -g n8n-nodes-md2notion
 
 ## 📋 Features
 
+### 🚀 **NEW in v1.5.2: Critical Link & Formula Fixes**
+
+- **Table Link Preservation**: Links in table cells now work correctly (previously became plain text)
+- **Quote Block Link Preservation**: Links in blockquotes now work correctly  
+- **Math Formula Display**: Formulas in tables now render properly (no more placeholder text)
+- **Universal Link Support**: Links now work in ALL contexts - paragraphs, lists, tables, quotes, toggles
+
+### Previous Updates
+
+**v1.5.1: Enhanced Heading & Formula Support**
+- **H4 Heading Support**: Now correctly renders H4 headings as `heading_4` (previously incorrectly converted to H3)
+- **H5/H6 Handling**: Converts H5 and H6 to bold paragraphs (Notion API limitation)
+- **Improved Formula Detection**: Smart distinction between math formulas and dollar signs for currency
+- **Better Text Formatting**: Proper handling of multiple italic syntaxes and strikethrough
+
+**v1.4.0: Large Document Support**
+
+- **Automatic Chunking**: Handles documents with 100+ blocks by splitting into multiple API calls
+- **Content Validation**: Automatically truncates content exceeding Notion's 2000-character limit
+- **Detailed Error Messages**: Specific error codes and solutions for common issues
+- **Progress Tracking**: Returns `chunksProcessed`, `totalBlocks`, and `blocksAdded` for monitoring
+- **Robust Error Recovery**: Handles network issues, rate limits, and API errors gracefully
+
 ### Supported Markdown Elements
 
 | Element | Notion Block Type | Syntax | Status |
 |---------|------------------|--------|--------|
 | **Text & Formatting** | | | |
-| Headings (H1-H3) | `heading_1/2/3` | `# ## ###` | ✅ |
+| Headings (H1-H4) | `heading_1/2/3/4` | `# ## ### ####` | ✅ |
+| Headings (H5-H6) | Bold paragraphs | `##### ######` | ✅ |
 | Paragraphs | `paragraph` | Regular text | ✅ |
-| **Bold** and *italic* | Rich text formatting | `**bold** *italic*` | ✅ |
+| **Bold** and *italic* | Rich text formatting | `**bold** *italic* _italic_` | ✅ |
+| ~~Strikethrough~~ | Strikethrough annotation | `~~text~~` | ✅ |
 | `Inline code` | Code annotation | `` `code` `` | ✅ |
 | [Links](url) | Rich text with links | `[text](url)` | ✅ |
 | **Lists & Tasks** | | | |
@@ -105,15 +132,35 @@ npm install -g n8n-nodes-md2notion
 - **Preserve Math Formulas**: Keep `$formula$` syntax intact (default: enabled)
 - **Math Formula Delimiter**: Customize the delimiter character (default: `$`)
 
+### Response Data
+
+The node returns comprehensive information about the conversion:
+
+```json
+{
+  "success": true,
+  "pageId": "your-page-id",
+  "blocksAdded": 150,
+  "chunksProcessed": 2,
+  "totalBlocks": 150,
+  "responses": [...]
+}
+```
+
+- `blocksAdded`: Total number of blocks successfully added to Notion
+- `chunksProcessed`: Number of API calls made (for large documents)
+- `totalBlocks`: Total blocks generated from markdown
+- `responses`: Array of Notion API responses for each chunk
+
 ## 🧮 Math Formula Handling
 
 **The Problem**: Other nodes convert `$E = mc^2$` incorrectly, breaking Notion rendering.
 
-**Our Solution**: Smart formula preservation algorithm that handles both inline and block equations:
+**Our Solution**: Smart formula preservation algorithm that intelligently distinguishes between math formulas and currency symbols:
 
 ```markdown
 Input:  "This equation $E = mc^2$ is famous, but $10 is just money."
-Output: "This equation $E = mc^2$ is famous, but $10 is just money."
+Output: Math formula preserved as equation block, dollar sign kept as text
 
 Block equation:
 $$
@@ -121,9 +168,65 @@ $$
 $$
 ```
 
-The node intelligently distinguishes between math formulas and regular dollar signs.
+**v1.5.1 Improvements**:
+- Better detection of price patterns (e.g., `$50`, `$100 美元`)
+- Context-aware formula recognition (LaTeX commands, math symbols)
+- Prevents false positives like `$25 和公式` being treated as math
 
 ## 📖 Examples
+
+### 🆕 Large Document Example
+
+This node can handle large documents that would fail with other nodes:
+
+```markdown
+# Comprehensive Analysis Report (342 lines)
+
+**Executive Summary**
+This report contains extensive analysis with multiple sections...
+
+## Section 1: Market Analysis
+
+| Metric | Q1 | Q2 | Q3 | Q4 |
+|--------|----|----|----|----|
+| Revenue | $1M | $1.2M | $1.5M | $1.8M |
+| Growth | 20% | 25% | 30% | 35% |
+
+### Mathematical Models
+
+The probability calculation: $P(success) = \frac{favorable}{total}$
+
+```python
+def calculate_probability(data):
+    return sum(data.favorable) / sum(data.total)
+```
+
+> [!important] Key Finding
+> The model shows 85% confidence in the prediction.
+
+## Section 2: Technical Implementation
+
+<details>
+<summary>Algorithm Details</summary>
+
+### Core Algorithm
+The system processes data using:
+
+$$
+f(x) = \sum_{i=1}^{n} w_i \cdot x_i + b
+$$
+
+Where:
+- $w_i$ represents weights
+- $x_i$ represents input features  
+- $b$ is the bias term
+
+</details>
+
+... [continues for 300+ more lines]
+```
+
+**Result**: Automatically chunked into 2 API calls, all content preserved, detailed progress tracking.
 
 ### Comprehensive Example
 
@@ -132,7 +235,13 @@ This example showcases all supported block types:
 ```markdown
 # Project Documentation
 
-This is a regular paragraph with **bold** and *italic* text, plus inline math: $E = mc^2$.
+This is a regular paragraph with **bold** and *italic* text, plus ~~strikethrough~~ and inline math: $E = mc^2$.
+
+#### H4 Heading Example
+Now properly rendered as heading_4 in Notion!
+
+##### H5 Heading Example  
+Converted to a bold paragraph (Notion API only supports up to H4).
 
 ## Task List
 
@@ -235,7 +344,9 @@ The derivative of $f(x) = x^2$ is $f'(x) = 2x$.
 ## Statistics  
 The normal distribution: $f(x) = \frac{1}{\sigma\sqrt{2\pi}} e^{-\frac{1}{2}(\frac{x-\mu}{\sigma})^2}$
 
-But remember, a coffee costs $5 at the local café.
+## Pricing Information
+But remember, a coffee costs $5 at the local café, and lunch is around $15.
+The product pricing is $100 美元 for the basic plan.
 ```
 
 ## 🔧 Development
@@ -278,6 +389,11 @@ cp -r dist/* ~/.n8n/custom/
 
 ### Common Issues
 
+**"Bad request - please check your parameters" (FIXED in v1.4.0)**
+- ✅ **Solution**: This error is now automatically prevented by chunking large documents
+- The node splits documents with 100+ blocks into multiple API calls
+- Content exceeding 2000 characters is automatically truncated with a warning
+
 **Node not appearing in n8n**
 - Ensure n8n is restarted after installation
 - Check that the package is installed: `npm list -g n8n-nodes-markdown-to-notion`
@@ -286,9 +402,38 @@ cp -r dist/* ~/.n8n/custom/
 - Verify your Notion API key is correct
 - Ensure the integration is shared with the target page
 
+**"Page not found" error**
+- Check that the Page ID is correct (32-character UUID)
+- Verify the integration has access to the page
+- Ensure the page exists and is not in trash
+
+**"Rate limited" error**
+- The node automatically handles rate limits with detailed error messages
+- Wait a few minutes and try again
+- Consider processing smaller chunks if the issue persists
+
 **Math formulas not preserved**
 - Check that "Preserve Math Formulas" option is enabled
-- Verify your delimiter setting matches your content
+- Verify your delimiter settings match your content
+
+### Error Messages Guide
+
+The node provides specific error messages with solutions:
+
+| Error Code | Meaning | Solution |
+|------------|---------|----------|
+| `validation_error` | Invalid request parameters | Check Page ID format and content |
+| `unauthorized` | Invalid API token | Verify Notion API credentials |
+| `forbidden` | No page access | Share page with integration |
+| `object_not_found` | Page doesn't exist | Check Page ID and page status |
+| `rate_limited` | Too many requests | Wait and retry |
+
+### Performance Tips
+
+- **Large documents**: The node automatically handles chunking, no action needed
+- **Complex tables**: Large tables are automatically split across multiple blocks
+- **Math formulas**: Use consistent delimiters throughout your document
+- **Images**: Use direct URLs for best compatibilityting matches your content
 
 **Page not found**
 - Double-check the Page ID from the Notion URL

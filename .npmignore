@@ -17,6 +17,8 @@ dist/**/__tests__/
 *.spec.d.ts
 jest.config.js
 verify-fixes.js
+test-compiled.js
+test-scripts/
 
 # Development files
 .github/

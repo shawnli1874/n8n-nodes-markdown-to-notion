@@ -48,8 +48,8 @@ test('Credentials 配置正确', () => {
 });
 
 test('convertMarkdownToNotionBlocks 方法存在', () => {
-  if (typeof node.convertMarkdownToNotionBlocks !== 'function') {
-    throw new Error('convertMarkdownToNotionBlocks 不是函数');
+  if (typeof MarkdownToNotion.convertMarkdownToNotionBlocks !== 'function') {
+    throw new Error('convertMarkdownToNotionBlocks 不是静态函数');
   }
 });
 

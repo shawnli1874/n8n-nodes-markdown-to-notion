@@ -1,0 +1,945 @@
+import {
+	IExecuteFunctions,
+	INodeExecutionData,
+	INodeType,
+	INodeTypeDescription,
+	IRequestOptions,
+	NodeOperationError,
+} from 'n8n-workflow';
+
+import { unified } from 'unified';
+import remarkParse from 'remark-parse';
+import remarkGfm from 'remark-gfm';
+import { visit } from 'unist-util-visit';
+import { toString as mdastToString } from 'mdast-util-to-string';
+
+interface NotionBlock {
+	object: 'block';
+	type: string;
+	[key: string]: any;
+}
+
+interface RichTextObject {
+	type: 'text';
+	text: {
+		content: string;
+		link?: { url: string } | null;
+	};
+	annotations?: {
+		bold?: boolean;
+		italic?: boolean;
+		strikethrough?: boolean;
+		underline?: boolean;
+		code?: boolean;
+		color?: string;
+	};
+}
+
+export class MarkdownToNotion implements INodeType {
+	description: INodeTypeDescription = {
+		displayName: 'Markdown to Notion',
+		name: 'markdownToNotion',
+		icon: 'file:notion.svg',
+		group: ['transform'],
+		version: 1,
+		subtitle: '={{$parameter["operation"]}}',
+		description: 'Convert markdown content to Notion page blocks with proper formula handling',
+		defaults: {
+			name: 'Markdown to Notion',
+		},
+		inputs: ['main'],
+		outputs: ['main'],
+		credentials: [
+			{
+				name: 'notionApi',
+				required: true,
+			},
+		],
+		properties: [
+			{
+				displayName: 'Operation',
+				name: 'operation',
+				type: 'options',
+				noDataExpression: true,
+				options: [
+					{
+						name: 'Append to Page',
+						value: 'appendToPage',
+						description: 'Convert markdown and append blocks to an existing Notion page',
+						action: 'Append markdown content to a Notion page',
+					},
+				],
+				default: 'appendToPage',
+			},
+			{
+				displayName: 'Page ID',
+				name: 'pageId',
+				type: 'string',
+				required: true,
+				displayOptions: {
+					show: {
+						operation: ['appendToPage'],
+					},
+				},
+				default: '',
+				placeholder: 'e.g. 59833787-2cf9-4fdf-8782-e53db20768a5',
+				description: 'The ID of the Notion page to append content to. You can find this in the page URL.',
+			},
+			{
+				displayName: 'Markdown Content',
+				name: 'markdownContent',
+				type: 'string',
+				typeOptions: {
+					rows: 10,
+				},
+				required: true,
+				displayOptions: {
+					show: {
+						operation: ['appendToPage'],
+					},
+				},
+				default: '',
+				placeholder: '# Heading\\n\\nSome **bold** text with $inline formula$ and more content.',
+				description: 'The markdown content to convert and append to the Notion page',
+			},
+			{
+				displayName: 'Options',
+				name: 'options',
+				type: 'collection',
+				placeholder: 'Add Option',
+				default: {},
+				displayOptions: {
+					show: {
+						operation: ['appendToPage'],
+					},
+				},
+				options: [
+					{
+						displayName: 'Preserve Math Formulas',
+						name: 'preserveMath',
+						type: 'boolean',
+						default: true,
+						description: 'Whether to preserve inline math formulas (text between $ symbols) as plain text instead of converting them',
+					},
+					{
+						displayName: 'Math Formula Delimiter',
+						name: 'mathDelimiter',
+						type: 'string',
+						default: '$',
+						description: 'The delimiter used for inline math formulas (default: $)',
+						displayOptions: {
+							show: {
+								preserveMath: [true],
+							},
+						},
+					},
+				],
+			},
+		],
+	};
+
+	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
+		const items = this.getInputData();
+		const returnData: INodeExecutionData[] = [];
+
+		for (let i = 0; i < items.length; i++) {
+			try {
+				const operation = this.getNodeParameter('operation', i) as string;
+				const pageId = this.getNodeParameter('pageId', i) as string;
+				const markdownContent = this.getNodeParameter('markdownContent', i) as string;
+				const options = this.getNodeParameter('options', i, {}) as {
+					preserveMath?: boolean;
+					mathDelimiter?: string;
+				};
+
+			if (operation === 'appendToPage') {
+				if (!pageId || !pageId.trim()) {
+					throw new NodeOperationError(
+						this.getNode(),
+						'Page ID is required and cannot be empty.',
+						{ itemIndex: i }
+					);
+				}
+
+				const cleanPageId = pageId.replace(/-/g, '');
+				if (!/^[a-f0-9]{32}$/i.test(cleanPageId)) {
+					throw new NodeOperationError(
+						this.getNode(),
+						'Invalid Page ID format. Expected a UUID (32 or 36 characters). You can find the Page ID in the Notion page URL.',
+						{ itemIndex: i }
+					);
+				}
+
+				if (!markdownContent || !markdownContent.trim()) {
+					throw new NodeOperationError(
+						this.getNode(),
+						'Markdown content is required and cannot be empty.',
+						{ itemIndex: i }
+					);
+				}
+
+			const blocks = await MarkdownToNotion.convertMarkdownToNotionBlocks(
+				markdownContent,
+				options.preserveMath ?? true,
+				options.mathDelimiter ?? '$'
+			);
+
+			// Notion API限制：单次请求最多100个blocks
+			const MAX_BLOCKS_PER_REQUEST = 100;
+			const allResponses: any[] = [];
+			let totalBlocksAdded = 0;
+
+			// 分块处理大文档
+			for (let i = 0; i < blocks.length; i += MAX_BLOCKS_PER_REQUEST) {
+				const chunk = blocks.slice(i, i + MAX_BLOCKS_PER_REQUEST);
+				
+				// 验证每个block的内容长度
+				const validatedChunk = MarkdownToNotion.validateAndTruncateBlocks(chunk);
+				
+				const requestOptions: IRequestOptions = {
+					method: 'PATCH',
+					url: `https://api.notion.com/v1/blocks/${pageId}/children`,
+					body: {
+						children: validatedChunk,
+					},
+					json: true,
+				};
+
+				try {
+					const response = await this.helpers.httpRequestWithAuthentication.call(
+						this,
+						'notionApi',
+						requestOptions,
+					);
+
+					if (!response || typeof response !== 'object') {
+						throw new NodeOperationError(
+							this.getNode(),
+							`Unexpected Notion API response for chunk ${Math.floor(i / MAX_BLOCKS_PER_REQUEST) + 1}: ${JSON.stringify(response)}`,
+							{ itemIndex: i }
+						);
+					}
+
+					if (response.object === 'error') {
+						// 提供更详细的错误信息
+						const errorDetails = MarkdownToNotion.parseNotionError(response);
+						throw new NodeOperationError(
+							this.getNode(),
+							`Notion API error in chunk ${Math.floor(i / MAX_BLOCKS_PER_REQUEST) + 1}: ${errorDetails}`,
+							{ itemIndex: i }
+						);
+					}
+
+					allResponses.push(response);
+					totalBlocksAdded += response.results?.length || 0;
+				} catch (error) {
+					// 如果是HTTP错误，尝试解析响应体
+					if (error.response && error.response.body) {
+						const errorBody = typeof error.response.body === 'string' 
+							? JSON.parse(error.response.body) 
+							: error.response.body;
+						
+						const errorDetails = MarkdownToNotion.parseNotionError(errorBody);
+						throw new NodeOperationError(
+							this.getNode(),
+							`Notion API request failed in chunk ${Math.floor(i / MAX_BLOCKS_PER_REQUEST) + 1}: ${errorDetails}`,
+							{ itemIndex: i }
+						);
+					}
+					throw error;
+				}
+			}
+
+				returnData.push({
+					json: {
+						success: true,
+						pageId,
+						blocksAdded: totalBlocksAdded,
+						chunksProcessed: allResponses.length,
+						totalBlocks: blocks.length,
+						responses: allResponses,
+					},
+					pairedItem: {
+						item: i,
+					},
+				});
+			}
+			} catch (error) {
+				if (this.continueOnFail()) {
+					returnData.push({
+						json: {
+							error: error.message,
+							success: false,
+						},
+						pairedItem: {
+							item: i,
+						},
+					});
+					continue;
+				}
+				throw new NodeOperationError(this.getNode(), error as Error, {
+					itemIndex: i,
+				});
+			}
+		}
+
+		return [returnData];
+	}
+
+	private static async convertMarkdownToNotionBlocks(
+		markdown: string,
+		preserveMath: boolean = true,
+		mathDelimiter: string = '$'
+	): Promise<NotionBlock[]> {
+		let processedMarkdown = markdown;
+		const mathPlaceholders: { [key: string]: string } = {};
+		
+		if (preserveMath) {
+			const mathRegex = new RegExp(`\\${mathDelimiter}([^${mathDelimiter}]+)\\${mathDelimiter}`, 'g');
+			let mathCounter = 0;
+			
+			processedMarkdown = markdown.replace(mathRegex, (match, formula) => {
+				const placeholder = `MATHPLACEHOLDER${mathCounter}MATHPLACEHOLDER`;
+				mathPlaceholders[placeholder] = match;
+				mathCounter++;
+				return placeholder;
+			});
+		}
+
+		// Pre-process toggle blocks (details/summary)
+		processedMarkdown = MarkdownToNotion.preprocessToggleBlocks(processedMarkdown);
+
+		const processor = unified()
+			.use(remarkParse)
+			.use(remarkGfm);
+
+		const tree = processor.parse(processedMarkdown);
+		const blocks: NotionBlock[] = [];
+		const processedNodes = new Set<any>();
+
+		visit(tree, (node: any) => {
+			// 跳过已经被父节点处理过的节点
+			if (processedNodes.has(node)) {
+				return;
+			}
+
+			switch (node.type) {
+				case 'heading':
+					blocks.push(MarkdownToNotion.createHeadingBlock(node, mathPlaceholders));
+					MarkdownToNotion.markNodeAndChildrenAsProcessed(node, processedNodes);
+					break;
+				case 'paragraph': {
+					const content = mdastToString(node).trim();
+					
+					if (MarkdownToNotion.isDivider(content)) {
+						blocks.push(MarkdownToNotion.createDividerBlock());
+						MarkdownToNotion.markNodeAndChildrenAsProcessed(node, processedNodes);
+						break;
+					}
+					
+					if (MarkdownToNotion.isStandaloneUrl(content)) {
+						blocks.push(MarkdownToNotion.createBookmarkBlock(content));
+						MarkdownToNotion.markNodeAndChildrenAsProcessed(node, processedNodes);
+						break;
+					}
+					
+					if (MarkdownToNotion.isBlockEquation(content)) {
+						blocks.push(MarkdownToNotion.createEquationBlock(content));
+						MarkdownToNotion.markNodeAndChildrenAsProcessed(node, processedNodes);
+						break;
+					}
+					
+					if (MarkdownToNotion.isCallout(content)) {
+						blocks.push(MarkdownToNotion.createCalloutBlock(node, mathPlaceholders));
+						MarkdownToNotion.markNodeAndChildrenAsProcessed(node, processedNodes);
+						break;
+					}
+
+					if (MarkdownToNotion.isToggleBlock(content)) {
+						blocks.push(MarkdownToNotion.createToggleBlock(content, mathPlaceholders));
+						MarkdownToNotion.markNodeAndChildrenAsProcessed(node, processedNodes);
+						break;
+					}
+					
+					const paragraphBlock = MarkdownToNotion.createParagraphBlock(node, mathPlaceholders);
+					if (paragraphBlock) {
+						blocks.push(paragraphBlock);
+					}
+					MarkdownToNotion.markNodeAndChildrenAsProcessed(node, processedNodes);
+					break;
+				}
+				case 'list':
+					blocks.push(...MarkdownToNotion.createListBlocks(node, mathPlaceholders));
+					MarkdownToNotion.markNodeAndChildrenAsProcessed(node, processedNodes);
+					break;
+				case 'code':
+					blocks.push(MarkdownToNotion.createCodeBlock(node));
+					MarkdownToNotion.markNodeAndChildrenAsProcessed(node, processedNodes);
+					break;
+				case 'blockquote': {
+					const quoteContent = mdastToString(node).trim();
+					if (MarkdownToNotion.isCallout(quoteContent)) {
+						blocks.push(MarkdownToNotion.createCalloutBlock(node, mathPlaceholders));
+					} else {
+						blocks.push(MarkdownToNotion.createQuoteBlock(node, mathPlaceholders));
+					}
+					MarkdownToNotion.markNodeAndChildrenAsProcessed(node, processedNodes);
+					break;
+				}
+				case 'image':
+					blocks.push(MarkdownToNotion.createImageBlock(node));
+					MarkdownToNotion.markNodeAndChildrenAsProcessed(node, processedNodes);
+					break;
+				case 'table':
+					blocks.push(...MarkdownToNotion.createTableBlocks(node, mathPlaceholders));
+					MarkdownToNotion.markNodeAndChildrenAsProcessed(node, processedNodes);
+					break;
+				case 'thematicBreak':
+					blocks.push(MarkdownToNotion.createDividerBlock());
+					MarkdownToNotion.markNodeAndChildrenAsProcessed(node, processedNodes);
+					break;
+			}
+		});
+
+		return blocks;
+	}
+
+	private static createHeadingBlock(node: any, mathPlaceholders: { [key: string]: string }): NotionBlock {
+		const level = Math.min(node.depth, 3);
+		const headingType = `heading_${level}`;
+		
+		return {
+			object: 'block',
+			type: headingType,
+			[headingType]: {
+				rich_text: MarkdownToNotion.convertToRichText(node, mathPlaceholders),
+			},
+		};
+	}
+
+	private static createParagraphBlock(node: any, mathPlaceholders: { [key: string]: string }): NotionBlock | null {
+		const richText = MarkdownToNotion.convertToRichText(node, mathPlaceholders);
+		
+		if (richText.length === 0 || (richText.length === 1 && richText[0].text.content.trim() === '')) {
+			return null;
+		}
+
+		return {
+			object: 'block',
+			type: 'paragraph',
+			paragraph: {
+				rich_text: richText,
+			},
+		};
+	}
+
+	private static createListBlocks(node: any, mathPlaceholders: { [key: string]: string }): NotionBlock[] {
+		const blocks: NotionBlock[] = [];
+
+		for (const listItem of node.children) {
+			if (listItem.type === 'listItem') {
+				const content = mdastToString(listItem).trim();
+				
+				if (MarkdownToNotion.isTodoItem(content)) {
+					blocks.push(MarkdownToNotion.createTodoBlock(listItem, mathPlaceholders));
+				} else {
+					const listType = node.ordered ? 'numbered_list_item' : 'bulleted_list_item';
+					blocks.push({
+						object: 'block',
+						type: listType,
+						[listType]: {
+							rich_text: MarkdownToNotion.convertToRichText(listItem, mathPlaceholders),
+						},
+					});
+				}
+			}
+		}
+
+		return blocks;
+	}
+
+	private static createCodeBlock(node: any): NotionBlock {
+		return {
+			object: 'block',
+			type: 'code',
+			code: {
+				rich_text: [
+					{
+						type: 'text',
+						text: {
+							content: node.value || '',
+						},
+					},
+				],
+				language: node.lang || 'plain text',
+			},
+		};
+	}
+
+	private static createQuoteBlock(node: any, mathPlaceholders: { [key: string]: string }): NotionBlock {
+		return {
+			object: 'block',
+			type: 'quote',
+			quote: {
+				rich_text: MarkdownToNotion.convertToRichText(node, mathPlaceholders),
+			},
+		};
+	}
+
+	private static convertToRichText(node: any, mathPlaceholders: { [key: string]: string }): RichTextObject[] {
+		const richText: RichTextObject[] = [];
+		
+		let textContent = mdastToString(node);
+		
+		for (const [placeholder, originalMath] of Object.entries(mathPlaceholders)) {
+			textContent = textContent.replace(placeholder, originalMath);
+		}
+
+		if (textContent.trim()) {
+			MarkdownToNotion.processInlineFormatting(node, richText, mathPlaceholders);
+		}
+
+		if (richText.length === 0 && textContent.trim()) {
+			richText.push({
+				type: 'text',
+				text: {
+					content: textContent,
+				},
+			});
+		}
+
+		return richText;
+	}
+
+	private static processInlineFormatting(node: any, richText: RichTextObject[], mathPlaceholders: { [key: string]: string }): void {
+		if (node.type === 'text') {
+			let content = node.value;
+			
+			for (const [placeholder, originalMath] of Object.entries(mathPlaceholders)) {
+				content = content.replace(placeholder, originalMath);
+			}
+
+			if (content) {
+				richText.push({
+					type: 'text',
+					text: {
+						content,
+					},
+				});
+			}
+		} else if (node.type === 'strong') {
+			let textContent = mdastToString(node);
+			textContent = MarkdownToNotion.restoreMathPlaceholders(textContent, mathPlaceholders);
+			if (textContent) {
+				richText.push({
+					type: 'text',
+					text: {
+						content: textContent,
+					},
+					annotations: {
+						bold: true,
+					},
+				});
+			}
+		} else if (node.type === 'emphasis') {
+			let textContent = mdastToString(node);
+			textContent = MarkdownToNotion.restoreMathPlaceholders(textContent, mathPlaceholders);
+			if (textContent) {
+				richText.push({
+					type: 'text',
+					text: {
+						content: textContent,
+					},
+					annotations: {
+						italic: true,
+					},
+				});
+			}
+		} else if (node.type === 'inlineCode') {
+			richText.push({
+				type: 'text',
+				text: {
+					content: node.value,
+				},
+				annotations: {
+					code: true,
+				},
+			});
+		} else if (node.type === 'link') {
+			let textContent = mdastToString(node);
+			textContent = MarkdownToNotion.restoreMathPlaceholders(textContent, mathPlaceholders);
+			if (textContent) {
+				richText.push({
+					type: 'text',
+					text: {
+						content: textContent,
+						link: { url: node.url },
+					},
+				});
+			}
+		} else if (node.children) {
+			for (const child of node.children) {
+				MarkdownToNotion.processInlineFormatting(child, richText, mathPlaceholders);
+			}
+		}
+	}
+
+	private static isTodoItem(content: string): boolean {
+		return /^- \[([ x])\]/.test(content);
+	}
+
+	private static createTodoBlock(node: any, mathPlaceholders: { [key: string]: string }): NotionBlock {
+		const content = mdastToString(node).trim();
+		const isChecked = /^- \[x\]/.test(content);
+		const textContent = content.replace(/^- \[([ x])\]\s*/, '');
+		
+		return {
+			object: 'block',
+			type: 'to_do',
+			to_do: {
+				rich_text: [{
+					type: 'text',
+					text: {
+						content: MarkdownToNotion.restoreMathPlaceholders(textContent, mathPlaceholders),
+					},
+				}],
+				checked: isChecked,
+			},
+		};
+	}
+
+	private static isDivider(content: string): boolean {
+		return /^(-{3,}|\*{3,})$/.test(content);
+	}
+
+	private static createDividerBlock(): NotionBlock {
+		return {
+			object: 'block',
+			type: 'divider',
+			divider: {},
+		};
+	}
+
+	private static isStandaloneUrl(content: string): boolean {
+		const urlRegex = /^https?:\/\/[^\s]+$/;
+		return urlRegex.test(content);
+	}
+
+	private static createBookmarkBlock(url: string): NotionBlock {
+		return {
+			object: 'block',
+			type: 'bookmark',
+			bookmark: {
+				url: url,
+				caption: [],
+			},
+		};
+	}
+
+	private static isBlockEquation(content: string): boolean {
+		return /^\$\$[\s\S]*\$\$$/.test(content.trim());
+	}
+
+	private static createEquationBlock(content: string): NotionBlock {
+		const equation = content.replace(/^\$\$\s*|\s*\$\$$/g, '');
+		return {
+			object: 'block',
+			type: 'equation',
+			equation: {
+				expression: equation,
+			},
+		};
+	}
+
+	private static isCallout(content: string): boolean {
+		return /^>\s*\[!(note|warning|info|tip|important|caution)\]/i.test(content);
+	}
+
+	private static createCalloutBlock(node: any, mathPlaceholders: { [key: string]: string }): NotionBlock {
+		const content = mdastToString(node).trim();
+		const match = content.match(/^>\s*\[!(note|warning|info|tip|important|caution)\]\s*(.*)/is);
+		
+		if (match) {
+			const calloutType = match[1].toLowerCase();
+			const calloutContent = match[2] || '';
+			
+			const iconMap: { [key: string]: string } = {
+				note: '📝',
+				warning: '⚠️',
+				info: 'ℹ️',
+				tip: '💡',
+				important: '❗',
+				caution: '⚠️',
+			};
+
+			return {
+				object: 'block',
+				type: 'callout',
+				callout: {
+					rich_text: [{
+						type: 'text',
+						text: {
+							content: MarkdownToNotion.restoreMathPlaceholders(calloutContent, mathPlaceholders),
+						},
+					}],
+					icon: {
+						type: 'emoji',
+						emoji: iconMap[calloutType] || '📝',
+					},
+					color: 'default',
+				},
+			};
+		}
+
+		return MarkdownToNotion.createQuoteBlock(node, mathPlaceholders);
+	}
+
+	private static createImageBlock(node: any): NotionBlock {
+		return {
+			object: 'block',
+			type: 'image',
+			image: {
+				type: 'external',
+				external: {
+					url: node.url,
+				},
+				caption: node.alt ? [{
+					type: 'text',
+					text: {
+						content: node.alt,
+					},
+				}] : [],
+			},
+		};
+	}
+
+	private static createTableBlocks(node: any, mathPlaceholders: { [key: string]: string }): NotionBlock[] {
+		const blocks: NotionBlock[] = [];
+		
+		if (!node.children || node.children.length === 0) {
+			return blocks;
+		}
+
+		const tableRows = node.children.filter((child: any) => child.type === 'tableRow');
+		
+		for (let i = 0; i < tableRows.length; i++) {
+			const row = tableRows[i];
+			const isHeader = i === 0;
+			
+			const cells = row.children.map((cell: any) => [
+				{
+					type: 'text',
+					text: {
+						content: MarkdownToNotion.restoreMathPlaceholders(mdastToString(cell), mathPlaceholders),
+					},
+					annotations: isHeader ? { bold: true } : {},
+				}
+			]);
+
+			blocks.push({
+				object: 'block',
+				type: 'table_row',
+				table_row: {
+					cells: cells,
+				},
+			});
+		}
+
+		if (blocks.length > 0) {
+			const tableBlock: NotionBlock = {
+				object: 'block',
+				type: 'table',
+				table: {
+					table_width: tableRows[0]?.children?.length || 1,
+					has_column_header: true,
+					has_row_header: false,
+					children: blocks,
+				},
+			};
+			
+			return [tableBlock];
+		}
+
+		return blocks;
+	}
+
+	private static restoreMathPlaceholders(text: string, mathPlaceholders: { [key: string]: string }): string {
+		let result = text;
+		for (const [placeholder, originalMath] of Object.entries(mathPlaceholders)) {
+			result = result.replace(placeholder, originalMath);
+		}
+		return result;
+	}
+
+	private static preprocessToggleBlocks(markdown: string): string {
+		const detailsRegex = /<details>\s*<summary>(.*?)<\/summary>\s*([\s\S]*?)<\/details>/gi;
+		
+		return markdown.replace(detailsRegex, (match, summary, content) => {
+			const cleanSummary = summary.trim();
+			const cleanContent = content.trim();
+			
+			return `__TOGGLE_START__${cleanSummary}__TOGGLE_CONTENT__${cleanContent}__TOGGLE_END__`;
+		});
+	}
+
+	private static isToggleBlock(content: string): boolean {
+		return content.includes('__TOGGLE_START__') && content.includes('__TOGGLE_END__');
+	}
+
+	private static createToggleBlock(content: string, mathPlaceholders: { [key: string]: string }): NotionBlock {
+		const match = content.match(/__TOGGLE_START__(.*?)__TOGGLE_CONTENT__(.*?)__TOGGLE_END__/s);
+		
+		if (!match) {
+			return MarkdownToNotion.createParagraphBlock({ children: [{ type: 'text', value: content }] }, mathPlaceholders) || {
+				object: 'block',
+				type: 'paragraph',
+				paragraph: { rich_text: [] }
+			};
+		}
+
+		const [, summary, toggleContent] = match;
+		const cleanSummary = MarkdownToNotion.restoreMathPlaceholders(summary.trim(), mathPlaceholders);
+		const cleanContent = MarkdownToNotion.restoreMathPlaceholders(toggleContent.trim(), mathPlaceholders);
+
+		const children: NotionBlock[] = [];
+		
+		if (cleanContent) {
+			const contentLines = cleanContent.split('\n').filter(line => line.trim());
+			
+			for (const line of contentLines) {
+				const trimmedLine = line.trim();
+				if (trimmedLine) {
+					if (trimmedLine.startsWith('#')) {
+						const level = Math.min((trimmedLine.match(/^#+/) || [''])[0].length, 3);
+						const headingType = `heading_${level}`;
+						const headingText = trimmedLine.replace(/^#+\s*/, '');
+						
+						children.push({
+							object: 'block',
+							type: headingType,
+							[headingType]: {
+								rich_text: [{
+									type: 'text',
+									text: { content: headingText }
+								}]
+							}
+						});
+					} else if (trimmedLine.startsWith('- ')) {
+						children.push({
+							object: 'block',
+							type: 'bulleted_list_item',
+							bulleted_list_item: {
+								rich_text: [{
+									type: 'text',
+									text: { content: trimmedLine.substring(2) }
+								}]
+							}
+						});
+					} else {
+						children.push({
+							object: 'block',
+							type: 'paragraph',
+							paragraph: {
+								rich_text: [{
+									type: 'text',
+									text: { content: trimmedLine }
+								}]
+							}
+						});
+					}
+				}
+			}
+		}
+
+		return {
+			object: 'block',
+			type: 'toggle',
+			toggle: {
+				rich_text: [{
+					type: 'text',
+					text: {
+						content: cleanSummary || 'Toggle'
+					}
+				}],
+				color: 'default',
+				children: children
+			}
+		};
+	}
+
+	private static validateAndTruncateBlocks(blocks: NotionBlock[]): NotionBlock[] {
+		const MAX_RICH_TEXT_LENGTH = 2000;
+		const MAX_RICH_TEXT_ARRAY_LENGTH = 100;
+
+		return blocks.map(block => {
+			const blockCopy = { ...block };
+			
+			// 处理不同类型的 block
+			const blockType = block.type;
+			if (blockCopy[blockType] && blockCopy[blockType].rich_text) {
+				const richTextArray = blockCopy[blockType].rich_text;
+				
+				// 限制 rich_text 数组长度
+				if (richTextArray.length > MAX_RICH_TEXT_ARRAY_LENGTH) {
+					blockCopy[blockType].rich_text = richTextArray.slice(0, MAX_RICH_TEXT_ARRAY_LENGTH);
+				}
+				
+				// 截断过长的文本内容
+				blockCopy[blockType].rich_text = blockCopy[blockType].rich_text.map((richText: any) => {
+					if (richText.text && richText.text.content && richText.text.content.length > MAX_RICH_TEXT_LENGTH) {
+						return {
+							...richText,
+							text: {
+								...richText.text,
+								content: richText.text.content.substring(0, MAX_RICH_TEXT_LENGTH - 20) + '...[截断]'
+							}
+						};
+					}
+					return richText;
+				});
+			}
+			
+			return blockCopy;
+		});
+	}
+
+	private static parseNotionError(errorResponse: any): string {
+		if (!errorResponse) return 'Unknown error';
+		
+		if (errorResponse.message) {
+			return errorResponse.message;
+		}
+		
+		if (errorResponse.code) {
+			switch (errorResponse.code) {
+				case 'validation_error':
+					return `Validation error: ${errorResponse.message || 'Invalid request parameters'}`;
+				case 'unauthorized':
+					return 'Unauthorized: Check your Notion API token and permissions';
+				case 'forbidden':
+					return 'Forbidden: The integration does not have access to this page';
+				case 'object_not_found':
+					return 'Page not found: The specified page ID does not exist or is not accessible';
+				case 'rate_limited':
+					return 'Rate limited: Too many requests. Please try again later';
+				case 'internal_server_error':
+					return 'Notion internal server error: Please try again later';
+				case 'service_unavailable':
+					return 'Notion service unavailable: Please try again later';
+				default:
+					return `Notion API error (${errorResponse.code}): ${errorResponse.message || 'Unknown error'}`;
+			}
+		}
+		
+		return JSON.stringify(errorResponse);
+	}
+
+	private static markNodeAndChildrenAsProcessed(node: any, processedNodes: Set<any>): void {
+		processedNodes.add(node);
+		if (node.children) {
+			for (const child of node.children) {
+				MarkdownToNotion.markNodeAndChildrenAsProcessed(child, processedNodes);
+			}
+		}
+	}
+}

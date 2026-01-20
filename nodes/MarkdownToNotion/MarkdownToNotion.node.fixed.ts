@@ -119,26 +119,14 @@ export class MarkdownToNotion implements INodeType {
 						name: 'preserveMath',
 						type: 'boolean',
 						default: true,
-						description: 'Whether to preserve inline math formulas as equation blocks in Notion',
+						description: 'Whether to preserve inline math formulas (text between $ symbols) as plain text instead of converting them',
 					},
 					{
 						displayName: 'Math Formula Delimiter',
 						name: 'mathDelimiter',
 						type: 'string',
 						default: '$',
-						description: 'The delimiter used for inline math formulas (default: $). Also supports LaTeX \\(...\\) syntax automatically.',
-						displayOptions: {
-							show: {
-								preserveMath: [true],
-							},
-						},
-					},
-					{
-						displayName: 'Support LaTeX Inline Formulas',
-						name: 'supportLatex',
-						type: 'boolean',
-						default: true,
-						description: 'Whether to support LaTeX-style inline formulas \\(...\\) in addition to dollar delimiters',
+						description: 'The delimiter used for inline math formulas (default: $)',
 						displayOptions: {
 							show: {
 								preserveMath: [true],
@@ -162,7 +150,6 @@ export class MarkdownToNotion implements INodeType {
 				const options = this.getNodeParameter('options', i, {}) as {
 					preserveMath?: boolean;
 					mathDelimiter?: string;
-					supportLatex?: boolean;
 				};
 
 			if (operation === 'appendToPage') {
@@ -194,8 +181,7 @@ export class MarkdownToNotion implements INodeType {
 			const blocks = await MarkdownToNotion.convertMarkdownToNotionBlocks(
 				markdownContent,
 				options.preserveMath ?? true,
-				options.mathDelimiter ?? '$',
-				options.supportLatex ?? true
+				options.mathDelimiter ?? '$'
 			);
 
 			const MAX_BLOCKS_PER_REQUEST = 100;
@@ -351,122 +337,24 @@ export class MarkdownToNotion implements INodeType {
 		return result.join('\n');
 	}
 
-	private 	static async convertMarkdownToNotionBlocks(
+	private static async convertMarkdownToNotionBlocks(
 		markdown: string,
 		preserveMath: boolean = true,
-		mathDelimiter: string = '$',
-		supportLatex: boolean = true
+		mathDelimiter: string = '$'
 	): Promise<NotionBlock[]> {
 		let processedMarkdown = markdown;
 		const mathPlaceholders: { [key: string]: string } = {};
 		
 		if (preserveMath) {
+			const mathRegex = new RegExp(`\\${mathDelimiter}([^${mathDelimiter}]+)\\${mathDelimiter}`, 'g');
 			let mathCounter = 0;
 			
-			// Process LaTeX-style inline formulas \(...\) first
-			if (supportLatex) {
-				const latexMatches: Array<{match: string, formula: string, start: number, end: number}> = [];
-				
-				const latexRegex = /\\\(/g;
-				let match: RegExpExecArray | null;
-				
-				while (true) {
-					match = latexRegex.exec(processedMarkdown);
-					if (!match) break;
-					
-					const startPos = match.index;
-					let pos = startPos + 2;
-					let depth = 1;
-					let formula = '';
-					
-					while (pos < processedMarkdown.length && depth > 0) {
-						const char = processedMarkdown[pos];
-						const nextChar = processedMarkdown[pos + 1];
-						
-						if (char === '\\' && nextChar === ')') {
-							depth--;
-							if (depth === 0) {
-								break;
-							}
-							formula += char + nextChar;
-							pos += 2;
-						} else {
-							formula += char;
-							pos++;
-						}
-					}
-					
-					if (depth === 0 && formula.trim().length > 0 && formula.trim().length <= 100) {
-						const fullMatch = processedMarkdown.substring(startPos, pos + 2);
-						latexMatches.push({
-							match: fullMatch,
-							formula: formula.trim(),
-							start: startPos,
-							end: pos + 2
-						});
-					}
-				}
-				
-				latexMatches.reverse().forEach(({ match, formula }) => {
-					const placeholder = `MATHPLACEHOLDER${mathCounter}MATHPLACEHOLDER`;
-					mathPlaceholders[placeholder] = `$${formula}$`;
-					mathCounter++;
-					processedMarkdown = processedMarkdown.replace(match, placeholder);
-				});
-			}
-			
-			// Process dollar-delimited formulas with improved detection
-			if (mathDelimiter === '$') {
-				let lastIndex = 0;
-				const parts: string[] = [];
-				const regex = /\$([^$\n\r]+?)\$/g;
-				let match: RegExpExecArray | null;
-				
-				while ((match = regex.exec(processedMarkdown))) {
-					const fullMatch = match[0];
-					const formula = match[1];
-					const trimmedFormula = formula.trim();
-					
-					parts.push(processedMarkdown.substring(lastIndex, match.index));
-					
-					if (trimmedFormula.length === 0 || trimmedFormula.length > 100) {
-						parts.push(fullMatch);
-					} else if (MarkdownToNotion.isLikelyPrice(trimmedFormula)) {
-						parts.push(fullMatch);
-					} else if (MarkdownToNotion.isLikelyMathFormula(trimmedFormula)) {
-						const placeholder = `MATHPLACEHOLDER${mathCounter}MATHPLACEHOLDER`;
-						mathPlaceholders[placeholder] = fullMatch;
-						mathCounter++;
-						parts.push(placeholder);
-					} else {
-						parts.push(fullMatch);
-					}
-					
-					lastIndex = regex.lastIndex;
-				}
-				
-				parts.push(processedMarkdown.substring(lastIndex));
-				processedMarkdown = parts.join('');
-			} else {
-				// Use custom delimiter with original logic
-				const mathRegex = new RegExp(`\\${mathDelimiter}([^${mathDelimiter}\\n\\r]+?)\\${mathDelimiter}`, 'g');
-				processedMarkdown = markdown.replace(mathRegex, (match, formula) => {
-					const trimmedFormula = formula.trim();
-					
-					if (trimmedFormula.length > 100) {
-						return match;
-					}
-					
-					if (MarkdownToNotion.isLikelyMathFormula(trimmedFormula)) {
-						const placeholder = `MATHPLACEHOLDER${mathCounter}MATHPLACEHOLDER`;
-						mathPlaceholders[placeholder] = match;
-						mathCounter++;
-						return placeholder;
-					}
-					
-					return match;
-				});
-			}
+			processedMarkdown = markdown.replace(mathRegex, (match, formula) => {
+				const placeholder = `MATHPLACEHOLDER${mathCounter}MATHPLACEHOLDER`;
+				mathPlaceholders[placeholder] = match;
+				mathCounter++;
+				return placeholder;
+			});
 		}
 
 		processedMarkdown = MarkdownToNotion.sanitizeFencedCodeBlocks(processedMarkdown);
@@ -511,7 +399,7 @@ export class MarkdownToNotion implements INodeType {
 			case 'blockquote':
 				return [MarkdownToNotion.createQuoteBlock(node, mathPlaceholders)];
 			case 'table':
-				return [MarkdownToNotion.createTableBlock(node, mathPlaceholders)];
+				return [MarkdownToNotion.createTableBlock(node)];
 			case 'thematicBreak':
 				return [MarkdownToNotion.createDividerBlock()];
 			case 'html':
@@ -586,46 +474,16 @@ export class MarkdownToNotion implements INodeType {
 			switch (node.type) {
 				case 'text': {
 					let content = node.value;
-					const textParts: Array<{type: 'text' | 'equation', content: string}> = [{type: 'text', content}];
 					
 					for (const [placeholder, mathFormula] of Object.entries(mathPlaceholders)) {
-						const formulaContent = mathFormula.replace(/^\$|\$$/g, '');
-						
-						for (let i = 0; i < textParts.length; i++) {
-							const part = textParts[i];
-							if (part.type === 'text' && part.content.includes(placeholder)) {
-								const splitParts = part.content.split(placeholder);
-								const newParts: Array<{type: 'text' | 'equation', content: string}> = [];
-								
-								for (let j = 0; j < splitParts.length; j++) {
-									if (splitParts[j]) {
-										newParts.push({type: 'text', content: splitParts[j]});
-									}
-									if (j < splitParts.length - 1) {
-										newParts.push({type: 'equation', content: formulaContent});
-									}
-								}
-								
-								textParts.splice(i, 1, ...newParts);
-								i += newParts.length - 1;
-							}
-						}
+						content = content.replace(placeholder, mathFormula);
 					}
 					
-					for (const part of textParts) {
-						if (part.content) {
-							if (part.type === 'text') {
-								richText.push({
-									type: 'text',
-									text: { content: part.content },
-								});
-							} else {
-								richText.push({
-									type: 'equation',
-									equation: { expression: part.content },
-								} as any);
-							}
-						}
+					if (content) {
+						richText.push({
+							type: 'text',
+							text: { content },
+						});
 					}
 					break;
 				}
@@ -837,31 +695,8 @@ export class MarkdownToNotion implements INodeType {
 	}
 
 	private static createHeadingBlock(node: any, mathPlaceholders: { [key: string]: string }): NotionBlock {
-		const level = node.depth;
-		
-		// Notion supports heading_1, heading_2, heading_3, heading_4
-		// Convert h5, h6 to bold paragraphs
-		if (level > 4) {
-			const richText = MarkdownToNotion.inlineNodesToRichText(node.children || [], mathPlaceholders);
-			
-			richText.forEach(rt => {
-				if (rt.annotations) {
-					rt.annotations.bold = true;
-				} else {
-					rt.annotations = { bold: true };
-				}
-			});
-			
-			return {
-				object: 'block',
-				type: 'paragraph',
-				paragraph: {
-					rich_text: richText,
-				},
-			};
-		}
-		
-		const headingType = `heading_${level}` as 'heading_1' | 'heading_2' | 'heading_3' | 'heading_4';
+		const level = Math.min(node.depth, 3);
+		const headingType = `heading_${level}` as 'heading_1' | 'heading_2' | 'heading_3';
 		
 		return {
 			object: 'block',
@@ -904,33 +739,11 @@ export class MarkdownToNotion implements INodeType {
 	}
 
 	private static createQuoteBlock(node: any, mathPlaceholders: { [key: string]: string }): NotionBlock {
-		let richText: RichTextObject[] = [];
-		
-		// 引用块的子节点通常是段落，需要提取段落的内联内容
-		for (const child of node.children || []) {
-			if (child.type === 'paragraph') {
-				const childRichText = MarkdownToNotion.inlineNodesToRichText(child.children || [], mathPlaceholders);
-				richText.push(...childRichText);
-				
-				// 如果不是最后一个段落，添加换行
-				if (node.children.indexOf(child) < node.children.length - 1) {
-					richText.push({
-						type: 'text',
-						text: { content: '\n' },
-					});
-				}
-			} else {
-				// 对于非段落子节点，直接处理
-				const childRichText = MarkdownToNotion.inlineNodesToRichText([child], mathPlaceholders);
-				richText.push(...childRichText);
-			}
-		}
-		
 		return {
 			object: 'block',
 			type: 'quote',
 			quote: {
-				rich_text: richText,
+				rich_text: MarkdownToNotion.inlineNodesToRichText(node.children || [], mathPlaceholders),
 			},
 		};
 	}
@@ -953,7 +766,7 @@ export class MarkdownToNotion implements INodeType {
 		};
 	}
 
-	private static createTableBlock(node: any, mathPlaceholders: { [key: string]: string } = {}): NotionBlock {
+	private static createTableBlock(node: any): NotionBlock {
 		const rows = node.children || [];
 		const tableWidth = rows.length > 0 ? (rows[0].children || []).length : 1;
 		const hasColumnHeader = node.align ? true : false;
@@ -963,27 +776,30 @@ export class MarkdownToNotion implements INodeType {
 
 		for (const row of rows) {
 			const cells = row.children || [];
-			const rowCells: RichTextObject[][] = [];
+			const rowChildren: NotionBlock[] = [];
 
 			for (const cell of cells) {
-				const cellRichText = MarkdownToNotion.inlineNodesToRichText(cell.children || [], mathPlaceholders);
-				
-				if (cellRichText.length === 0) {
-					cellRichText.push({
-						type: 'text',
-						text: { content: '' },
-					});
-				}
-				
-				rowCells.push(cellRichText);
+				const cellContent = mdastToString(cell).trim();
+				rowChildren.push({
+					object: 'block',
+					type: 'table_row',
+					table_row: {
+						cells: [[{
+							type: 'text',
+							text: {
+								content: cellContent,
+							},
+						}]],
+					},
+				});
 			}
 
-			if (rowCells.length > 0) {
+			if (rowChildren.length > 0) {
 				children.push({
 					object: 'block',
 					type: 'table_row',
 					table_row: {
-						cells: rowCells,
+						cells: rowChildren.map(child => child.table_row.cells[0]),
 					},
 				});
 			}
@@ -1066,7 +882,6 @@ export class MarkdownToNotion implements INodeType {
 
 	private static mapLanguageToNotion(language: string): string {
 		const languageMap: { [key: string]: string } = {
-			// 常见语言缩写映射
 			'js': 'javascript',
 			'ts': 'typescript',
 			'py': 'python',
@@ -1074,165 +889,10 @@ export class MarkdownToNotion implements INodeType {
 			'sh': 'bash',
 			'yml': 'yaml',
 			'md': 'markdown',
-			'cpp': 'c++',
-			'cs': 'c#',
-			'kt': 'kotlin',
-			'rs': 'rust',
-			'go': 'go',
-			'php': 'php',
-			'java': 'java',
-			'swift': 'swift',
-			'scala': 'scala',
-			'r': 'r',
-			'sql': 'sql',
-			'html': 'html',
-			'css': 'css',
-			'scss': 'scss',
-			'sass': 'sass',
-			'less': 'less',
-			'json': 'json',
-			'xml': 'xml',
-			'dockerfile': 'docker',
-			'makefile': 'makefile',
-			'cmake': 'cmake',
-			'powershell': 'powershell',
-			'ps1': 'powershell',
-			'bat': 'batch',
-			'cmd': 'batch',
-			'vim': 'vim script',
-			'lua': 'lua',
-			'perl': 'perl',
-			'haskell': 'haskell',
-			'clojure': 'clojure',
-			'erlang': 'erlang',
-			'elixir': 'elixir',
-			'dart': 'dart',
-			'groovy': 'groovy',
-			'matlab': 'matlab',
-			'octave': 'octave',
-			'latex': 'latex',
-			'tex': 'latex',
-			'diff': 'diff',
-			'patch': 'diff',
-			'ini': 'ini',
-			'toml': 'toml',
-			'properties': 'properties',
-			'conf': 'apache',
-			'nginx': 'nginx',
-			'apache': 'apache',
-			'htaccess': 'apache',
-			'gitignore': 'gitignore',
-			'gitconfig': 'git config',
-			'docker-compose': 'docker',
-			'k8s': 'kubernetes',
-			'kubernetes': 'kubernetes',
-			'terraform': 'hcl',
-			'tf': 'hcl',
-			'hcl': 'hcl',
-			'graphql': 'graphql',
-			'gql': 'graphql',
-			'proto': 'protocol buffer',
-			'protobuf': 'protocol buffer',
-			'thrift': 'thrift',
-			'avro': 'avro',
-			'assembly': 'assembly',
-			'asm': 'assembly',
-			'nasm': 'assembly',
-			'masm': 'assembly',
-			'fortran': 'fortran',
-			'cobol': 'cobol',
-			'pascal': 'pascal',
-			'ada': 'ada',
-			'vhdl': 'vhdl',
-			'verilog': 'verilog',
-			'systemverilog': 'systemverilog',
-			'tcl': 'tcl',
-			'awk': 'awk',
-			'sed': 'sed',
-			'regex': 'regex',
-			'regexp': 'regex',
-			'abnf': 'abnf',
-			'ebnf': 'ebnf',
-			'bnf': 'bnf',
-			'antlr': 'antlr',
-			'yacc': 'yacc',
-			'lex': 'lex',
-			'flex': 'flex',
-			'bison': 'bison',
-			// 图表和特殊格式
-			'mermaid': 'mermaid',
-			'plantuml': 'plantuml',
-			'dot': 'graphviz',
-			'graphviz': 'graphviz',
-			'ditaa': 'ditaa',
-			'flowchart': 'mermaid',
-			'sequence': 'mermaid',
-			'gantt': 'mermaid',
-			'mindmap': 'mermaid',
-			'timeline': 'mermaid',
-			// 数据格式
-			'csv': 'csv',
-			'tsv': 'csv',
-			'log': 'log',
-			'logs': 'log',
-			'syslog': 'log',
-			'access': 'log',
-			'error': 'log',
-			// 配置文件
-			'env': 'bash',
-			'dotenv': 'bash',
-			'editorconfig': 'editorconfig',
-			'eslintrc': 'json',
-			'prettierrc': 'json',
-			'babelrc': 'json',
-			'tsconfig': 'json',
-			'package': 'json',
-			'composer': 'json',
-			'cargo': 'toml',
-			'poetry': 'toml',
-			'pipfile': 'toml',
-			'requirements': 'text',
-			'gemfile': 'ruby',
-			'podfile': 'ruby',
-			'rakefile': 'ruby',
-			'vagrantfile': 'ruby',
-			'berksfile': 'ruby',
-			'capfile': 'ruby',
-			'guardfile': 'ruby',
-			'procfile': 'text',
-			'cmakelists': 'cmake',
-			'sconscript': 'python',
-			'sconstruct': 'python',
-			'wscript': 'python',
-			'setup': 'python',
-			'buildfile': 'text',
-			'build': 'text',
-			'ant': 'xml',
-			'maven': 'xml',
-			'gradle': 'groovy',
-			'sbt': 'scala',
-			'mix': 'elixir',
-			'rebar': 'erlang',
-			'dune': 'ocaml',
-			'opam': 'opam',
-			'cabal': 'cabal',
-			'stack': 'yaml',
-			'pubspec': 'yaml',
-			'podspec': 'ruby',
-			'cartfile': 'text',
-			'brewfile': 'ruby',
-			'fastfile': 'ruby',
-			'appfile': 'ruby',
-			'deliverfile': 'ruby',
-			'gymfile': 'ruby',
-			'matchfile': 'ruby',
-			'scanfile': 'ruby',
-			'snapshotfile': 'ruby',
-			'pluginfile': 'ruby',
+			'mermaid': 'plain text',
 		};
 		
-		const normalizedLanguage = language.toLowerCase().trim();
-		return languageMap[normalizedLanguage] || normalizedLanguage;
+		return languageMap[language.toLowerCase()] || language.toLowerCase();
 	}
 
 	private static parseNotionError(errorResponse: any): string {
@@ -1265,78 +925,5 @@ export class MarkdownToNotion implements INodeType {
 			default:
 				return `${code}: ${message}`;
 		}
-	}
-
-	private static isLikelyPrice(content: string): boolean {
-		const hasMathSymbols = /[_{}^\\]/.test(content) || /\b(sum|int|lim|frac|sqrt|alpha|beta|gamma|delta|epsilon|theta|lambda|mu|pi|sigma|phi|psi|omega)\b/i.test(content);
-		if (hasMathSymbols) {
-			return false;
-		}
-		
-		const pricePatterns = [
-			/^\d+(\.\d{1,2})?$/,
-			/^\d{1,3}(,\d{3})*(\.\d{1,2})?$/,
-			/^\d+(\.\d+)?\s*(USD|EUR|GBP|JPY|CNY|CAD|AUD)$/i,
-			/^(USD|EUR|GBP|JPY|CNY|CAD|AUD)\s*\d+(\.\d+)?$/i,
-			/^\d+(\.\d+)?\s*(dollars?|cents?|yuan|euros?|pounds?|yen)$/i,
-			/^(dollars?|cents?|yuan|euros?|pounds?|yen)\s*\d+(\.\d+)?$/i,
-			/^\d+k$/i,
-			/^\d+(\.\d+)?[km]$/i,
-			/^\d+\s*[，,]\s*那个/,
-			/^\d+\s*[，,]\s*总共/,
-			/^\d+\s*[，,]\s*这个/,
-			/^\d+\s*和\s*/,
-			/^\d+\s*[，,、]\s*\d+/,
-			/^\d+\s*[元美金刀块毛分]/
-		];
-		
-		const contextWords = ['price', 'cost', 'value', 'amount', 'total', 'fee', 'charge', 'bill', 'payment', '价格', '费用', '花费', '成本', '金额', '总共', '一共', '共计', '元', '美金', '刀', '块', '毛', '分', '美元', '人民币', '买', '卖', '购买', '支付', '付款', '收费', '便宜', '贵', '昂贵', '优惠', '折扣'];
-		const hasContextWord = contextWords.some(word => 
-			content.includes(word)
-		);
-		
-		return pricePatterns.some(pattern => pattern.test(content.trim())) || hasContextWord;
-	}
-
-	private static isLikelyMathFormula(content: string): boolean {
-		const currencyPatterns = [
-			/^\d+$/,
-			/^\d+[.,]\d+$/,
-			/^\d+\s*[元美金刀块毛分]$/,
-			/^\d+\s*[,，]\s*那个/,
-			/^\d+\s*[,，]\s*总共/,
-			/^\d+\s*[,，]\s*这个/,
-			/^\d+\s*和\s*/,
-			/^\d+\s*[,，、]\s*\d+/,
-			/价格|费用|花费|成本|金额|总共|一共|共计|元|美金|刀|块|毛|分|美元|人民币|买|卖|购买|支付|付款|收费|便宜|贵|昂贵|优惠|折扣/
-		];
-		
-		if (currencyPatterns.some(pattern => pattern.test(content))) {
-			return false;
-		}
-		
-		const strongMathIndicators = [
-			/\\[a-zA-Z]+/,
-			/[∑∫∏∆∇∂∞±≤≥≠≈∈∉⊂⊃∪∩]/,
-			/\\(begin|end|left|right|frac|sqrt)/,
-			/\b(sum|int|lim|frac|sqrt|alpha|beta|gamma|delta|epsilon|theta|lambda|mu|pi|sigma|phi|psi|omega|sin|cos|tan|log|ln|exp)\b/i,
-			/[a-zA-Z]_\{[^}]+\}/,
-			/[a-zA-Z]\^\{[^}]+\}/
-		];
-		
-		if (strongMathIndicators.some(pattern => pattern.test(content))) {
-			return true;
-		}
-		
-		const mathIndicators = [
-			/[_{}\\^]/,
-			/[a-zA-Z]\s*[=<>]\s*[a-zA-Z]/,
-			/\b[a-zA-Z]+\([a-zA-Z,\s]+\)/,
-			/[a-zA-Z]\s*[+\-*/]\s*[a-zA-Z]/,
-			/[a-zA-Z]\^[0-9]/
-		];
-		
-		const mathCount = mathIndicators.filter(pattern => pattern.test(content)).length;
-		return mathCount >= 2;
 	}
 }
