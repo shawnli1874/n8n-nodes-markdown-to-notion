@@ -61,14 +61,21 @@ npm install -g n8n-nodes-md2notion
 
 ## 📋 Features
 
-### 🚀 **NEW in v1.5.2: Critical Link & Formula Fixes**
+### 🚀 **NEW in v1.6.0: Toggle Headings Feature**
 
+- **Collapsible Headings**: New "Toggle Headings" option converts all headings to collapsible toggle blocks
+- **Better Document Organization**: Large documents become more navigable with expandable sections
+- **Visual Hierarchy**: Different heading levels use distinct colors (H1=default, H2=gray, H3=brown, H4=orange)
+- **Complete Compatibility**: All heading content preserved including links, formulas, and formatting
+- **Backward Compatible**: Feature disabled by default, existing workflows unchanged
+
+### Previous Updates
+
+**v1.5.2: Critical Link & Formula Fixes**
 - **Table Link Preservation**: Links in table cells now work correctly (previously became plain text)
 - **Quote Block Link Preservation**: Links in blockquotes now work correctly  
 - **Math Formula Display**: Formulas in tables now render properly (no more placeholder text)
 - **Universal Link Support**: Links now work in ALL contexts - paragraphs, lists, tables, quotes, toggles
-
-### Previous Updates
 
 **v1.5.1: Enhanced Heading & Formula Support**
 - **H4 Heading Support**: Now correctly renders H4 headings as `heading_4` (previously incorrectly converted to H3)
@@ -131,6 +138,10 @@ npm install -g n8n-nodes-md2notion
 
 - **Preserve Math Formulas**: Keep `$formula$` syntax intact (default: enabled)
 - **Math Formula Delimiter**: Customize the delimiter character (default: `$`)
+- **Toggle Headings**: Convert all headings to collapsible toggle blocks (default: disabled)
+  - When enabled: H1-H4 headings become expandable/collapsible sections
+  - Visual hierarchy: Different colors for each heading level
+  - Better organization: Large documents become more navigable
 
 ### Response Data
 

@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-md2notion",
-  "version": "1.5.2",
+  "version": "1.6.0",
   "description": "Convert markdown to Notion pages with advanced chunking and error handling - supports large documents, complex content, and provides detailed error messages",
   "keywords": [
     "n8n-community-node-package",

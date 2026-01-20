@@ -1,11 +1,11 @@
 #!/bin/bash
 
-# n8n-nodes-md2notion v1.5.2 发布脚本
+# n8n-nodes-md2notion v1.6.0 发布脚本
 # 使用方法: ./publish.sh
 
 set -e
 
-echo "🚀 准备发布 n8n-nodes-md2notion v1.5.2..."
+echo "🚀 准备发布 n8n-nodes-md2notion v1.6.0..."
 echo
 
 # 1. 检查当前分支
@@ -54,11 +54,12 @@ echo "   描述: $(node -p "require('./package.json').description")"
 echo
 
 # 6. 显示主要更新
-echo "🎯 主要更新 (v1.5.2):"
-echo "   🔗 修复表格中链接丢失问题"
-echo "   🔗 修复引用块中链接丢失问题"  
-echo "   🧮 修复表格中数学公式占位符问题"
-echo "   ✅ 链接现在在所有上下文中都能正常工作"
+echo "🎯 主要更新 (v1.6.0):"
+echo "   🆕 新功能：Toggle Headings 可折叠标题"
+echo "   📂 所有标题可转换为可折叠的 toggle 块"
+echo "   🎨 不同级别标题使用不同颜色区分"
+echo "   📋 更好的文档组织和导航体验"
+echo "   🔄 完全向后兼容，默认禁用"
 echo
 
 # 7. 最终确认

@@ -7,6 +7,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-01-20
+
+### 🚀 New Feature: Toggle Headings
+
+This release introduces a new "Toggle Headings" option that converts all headings to collapsible toggle blocks, providing better document organization and navigation in Notion.
+
+#### ✨ New Features
+
+**📂 Toggle Headings Option**
+- **New Configuration**: Added "Toggle Headings" boolean option in node settings
+  - Default: `false` (maintains backward compatibility)
+  - When enabled: All H1-H4 headings become collapsible toggle blocks
+  - Description: "Convert all headings to collapsible toggle blocks instead of regular headings"
+
+**🎨 Visual Hierarchy**
+- **Level-based Styling**: Different heading levels use distinct colors for visual hierarchy
+  - H1: Bold + Default color
+  - H2: Bold + Gray color  
+  - H3: Bold + Brown color
+  - H4: Bold + Orange color
+  - H5/H6: Continue as bold paragraphs (unchanged)
+
+**📋 Content Preservation**
+- **Complete Format Support**: All heading content preserved including:
+  - Links within headings
+  - Math formulas in headings
+  - Text formatting (bold, italic, etc.)
+  - Mixed content combinations
+
+**🔄 Backward Compatibility**
+- **Zero Breaking Changes**: Existing workflows continue to work unchanged
+- **Default Behavior**: Toggle headings disabled by default
+- **Gradual Adoption**: Users can enable the feature when needed
+
+#### 🧪 Technical Implementation
+
+**API Integration**:
+- Utilizes Notion's native `toggle` block type
+- Applies `rich_text` annotations for heading-style formatting
+- Maintains all existing functionality while adding toggle capability
+
+**User Experience**:
+- **Collapsible Sections**: Users can expand/collapse document sections
+- **Better Navigation**: Large documents become more manageable
+- **Visual Clarity**: Color-coded heading levels improve readability
+
+#### 📊 Testing
+
+- Comprehensive comparison testing (normal vs toggle mode)
+- 61 test blocks covering all scenarios
+- Verified complex content handling (links, formulas, formatting)
+- Confirmed visual hierarchy and collapsible functionality
+
 ## [1.5.2] - 2026-01-20
 
 ### 🐛 Critical Link and Formula Fixes

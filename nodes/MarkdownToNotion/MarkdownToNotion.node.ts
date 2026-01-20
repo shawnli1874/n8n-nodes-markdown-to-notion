@@ -145,6 +145,13 @@ export class MarkdownToNotion implements INodeType {
 							},
 						},
 					},
+					{
+						displayName: 'Toggle Headings',
+						name: 'toggleHeadings',
+						type: 'boolean',
+						default: false,
+						description: 'Convert all headings to collapsible toggle blocks instead of regular headings. This allows users to expand/collapse sections in Notion.',
+					},
 				],
 			},
 		],
@@ -163,6 +170,7 @@ export class MarkdownToNotion implements INodeType {
 					preserveMath?: boolean;
 					mathDelimiter?: string;
 					supportLatex?: boolean;
+					toggleHeadings?: boolean;
 				};
 
 			if (operation === 'appendToPage') {
@@ -195,7 +203,8 @@ export class MarkdownToNotion implements INodeType {
 				markdownContent,
 				options.preserveMath ?? true,
 				options.mathDelimiter ?? '$',
-				options.supportLatex ?? true
+				options.supportLatex ?? true,
+				options.toggleHeadings ?? false
 			);
 
 			const MAX_BLOCKS_PER_REQUEST = 100;
@@ -355,7 +364,8 @@ export class MarkdownToNotion implements INodeType {
 		markdown: string,
 		preserveMath: boolean = true,
 		mathDelimiter: string = '$',
-		supportLatex: boolean = true
+		supportLatex: boolean = true,
+		toggleHeadings: boolean = false
 	): Promise<NotionBlock[]> {
 		let processedMarkdown = markdown;
 		const mathPlaceholders: { [key: string]: string } = {};
@@ -480,17 +490,17 @@ export class MarkdownToNotion implements INodeType {
 		const blocks: NotionBlock[] = [];
 
 		for (const node of tree.children) {
-			const nodeBlocks = MarkdownToNotion.nodeToBlocks(node as any, mathPlaceholders);
+			const nodeBlocks = MarkdownToNotion.nodeToBlocks(node as any, mathPlaceholders, toggleHeadings);
 			blocks.push(...nodeBlocks);
 		}
 
 		return blocks;
 	}
 
-	private static nodeToBlocks(node: any, mathPlaceholders: { [key: string]: string }): NotionBlock[] {
+	private static nodeToBlocks(node: any, mathPlaceholders: { [key: string]: string }, toggleHeadings: boolean = false): NotionBlock[] {
 		switch (node.type) {
 			case 'heading':
-				return [MarkdownToNotion.createHeadingBlock(node, mathPlaceholders)];
+				return [MarkdownToNotion.createHeadingBlock(node, mathPlaceholders, toggleHeadings)];
 			case 'paragraph': {
 				const content = mdastToString(node).trim();
 				
@@ -505,7 +515,7 @@ export class MarkdownToNotion implements INodeType {
 				return [MarkdownToNotion.createParagraphBlock(node, mathPlaceholders)];
 			}
 			case 'list':
-				return MarkdownToNotion.createListBlocks(node, mathPlaceholders);
+				return MarkdownToNotion.createListBlocks(node, mathPlaceholders, toggleHeadings);
 			case 'code':
 				return [MarkdownToNotion.createCodeBlock(node)];
 			case 'blockquote':
@@ -524,13 +534,13 @@ export class MarkdownToNotion implements INodeType {
 		}
 	}
 
-	private static createListBlocks(listNode: any, mathPlaceholders: { [key: string]: string }): NotionBlock[] {
+	private static createListBlocks(listNode: any, mathPlaceholders: { [key: string]: string }, toggleHeadings: boolean = false): NotionBlock[] {
 		const blocks: NotionBlock[] = [];
 		const isOrdered = listNode.ordered;
 		
 		for (const listItem of listNode.children) {
 			if (listItem.type === 'listItem') {
-				const block = MarkdownToNotion.createListItemBlock(listItem, isOrdered, mathPlaceholders);
+				const block = MarkdownToNotion.createListItemBlock(listItem, isOrdered, mathPlaceholders, toggleHeadings);
 				blocks.push(block);
 			}
 		}
@@ -538,7 +548,7 @@ export class MarkdownToNotion implements INodeType {
 		return blocks;
 	}
 
-	private static createListItemBlock(listItem: any, isOrdered: boolean, mathPlaceholders: { [key: string]: string }): NotionBlock {
+	private static createListItemBlock(listItem: any, isOrdered: boolean, mathPlaceholders: { [key: string]: string }, toggleHeadings: boolean = false): NotionBlock {
 		const blockType = isOrdered ? 'numbered_list_item' : 'bulleted_list_item';
 		
 		let richText: RichTextObject[] = [];
@@ -551,14 +561,14 @@ export class MarkdownToNotion implements INodeType {
 				richText = MarkdownToNotion.inlineNodesToRichText(firstChild.children || [], mathPlaceholders);
 				
 				for (let i = 1; i < listItem.children.length; i++) {
-					const childBlocks = MarkdownToNotion.nodeToBlocks(listItem.children[i], mathPlaceholders);
+					const childBlocks = MarkdownToNotion.nodeToBlocks(listItem.children[i], mathPlaceholders, toggleHeadings);
 					children.push(...childBlocks);
 				}
 			} else {
 				richText = [{ type: 'text', text: { content: '' } }];
 				
 				for (const child of listItem.children) {
-					const childBlocks = MarkdownToNotion.nodeToBlocks(child, mathPlaceholders);
+					const childBlocks = MarkdownToNotion.nodeToBlocks(child, mathPlaceholders, toggleHeadings);
 					children.push(...childBlocks);
 				}
 			}
@@ -836,11 +846,10 @@ export class MarkdownToNotion implements INodeType {
 		};
 	}
 
-	private static createHeadingBlock(node: any, mathPlaceholders: { [key: string]: string }): NotionBlock {
+	private static createHeadingBlock(node: any, mathPlaceholders: { [key: string]: string }, toggleHeadings: boolean = false): NotionBlock {
 		const level = node.depth;
 		
-		// Notion supports heading_1, heading_2, heading_3, heading_4
-		// Convert h5, h6 to bold paragraphs
+		// H5/H6 always convert to bold paragraphs (Notion limitation)
 		if (level > 4) {
 			const richText = MarkdownToNotion.inlineNodesToRichText(node.children || [], mathPlaceholders);
 			
@@ -861,13 +870,40 @@ export class MarkdownToNotion implements INodeType {
 			};
 		}
 		
+		const richText = MarkdownToNotion.inlineNodesToRichText(node.children || [], mathPlaceholders);
+		
+		// If toggle headings is enabled, create toggle blocks instead of headings
+		if (toggleHeadings) {
+			// Apply heading-level styling to toggle text
+			const headingColors = ['default', 'gray', 'brown', 'orange'];
+			const color = headingColors[level - 1] || 'default';
+			
+			richText.forEach(rt => {
+				if (rt.annotations) {
+					rt.annotations.bold = true;
+					rt.annotations.color = color;
+				} else {
+					rt.annotations = { bold: true, color };
+				}
+			});
+			
+			return {
+				object: 'block',
+				type: 'toggle',
+				toggle: {
+					rich_text: richText,
+				},
+			};
+		}
+		
+		// Regular heading blocks
 		const headingType = `heading_${level}` as 'heading_1' | 'heading_2' | 'heading_3' | 'heading_4';
 		
 		return {
 			object: 'block',
 			type: headingType,
 			[headingType]: {
-				rich_text: MarkdownToNotion.inlineNodesToRichText(node.children || [], mathPlaceholders),
+				rich_text: richText,
 			},
 		};
 	}
