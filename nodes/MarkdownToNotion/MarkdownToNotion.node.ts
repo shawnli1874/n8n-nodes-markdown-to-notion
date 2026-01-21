@@ -1732,6 +1732,50 @@ export class MarkdownToNotion implements INodeType {
 			};
 		}
 
+		const MAX_BLOCKS_PER_REQUEST = 100;
+		
+		if (blocks.length <= MAX_BLOCKS_PER_REQUEST) {
+			return MarkdownToNotion.addSingleBatch(executeFunctions, pageId, blocks);
+		}
+
+		let totalBlocksAdded = 0;
+		const allResponses: any[] = [];
+		const allWarnings: string[] = [];
+
+		for (let chunkIndex = 0; chunkIndex < blocks.length; chunkIndex += MAX_BLOCKS_PER_REQUEST) {
+			const chunk = blocks.slice(chunkIndex, chunkIndex + MAX_BLOCKS_PER_REQUEST);
+			
+			try {
+				const result = await MarkdownToNotion.addSingleBatch(executeFunctions, pageId, chunk);
+				totalBlocksAdded += result.blocksAdded;
+				allResponses.push(result.response);
+				allWarnings.push(...result.warnings);
+			} catch (error) {
+				const chunkNumber = Math.floor(chunkIndex / MAX_BLOCKS_PER_REQUEST) + 1;
+				throw new NodeOperationError(
+					executeFunctions.getNode(),
+					`Failed to process chunk ${chunkNumber} of ${Math.ceil(blocks.length / MAX_BLOCKS_PER_REQUEST)}: ${error.message}`
+				);
+			}
+		}
+
+		return {
+			response: {
+				object: 'list',
+				results: allResponses.flatMap(r => r.results || []),
+				has_more: false,
+				next_cursor: null
+			},
+			blocksAdded: totalBlocksAdded,
+			warnings: allWarnings
+		};
+	}
+
+	private static async addSingleBatch(
+		executeFunctions: IExecuteFunctions,
+		pageId: string,
+		blocks: NotionBlock[]
+	): Promise<{ response: any; blocksAdded: number; warnings: string[] }> {
 		const normalizedResult = MarkdownToNotion.normalizeBlocksForNotion(blocks);
 		const normalizedBlocks = normalizedResult.blocks;
 		const warnings = normalizedResult.warnings;
@@ -1761,10 +1805,25 @@ export class MarkdownToNotion implements INodeType {
 
 			if (response.object === 'error') {
 				const errorDetails = MarkdownToNotion.parseNotionError(response);
-				throw new NodeOperationError(
-					executeFunctions.getNode(),
-					`Notion API error: ${errorDetails}`
-				);
+				
+				try {
+					const retryResult = await MarkdownToNotion.retryWithBisection(
+						executeFunctions,
+						pageId,
+						blocks,
+						errorDetails
+					);
+					return {
+						response: retryResult.response,
+						blocksAdded: retryResult.blocksAdded,
+						warnings: [...warnings, ...retryResult.warnings]
+					};
+				} catch (retryError) {
+					throw new NodeOperationError(
+						executeFunctions.getNode(),
+						`Notion API error after retry: ${errorDetails}`
+					);
+				}
 			}
 
 			return {
@@ -1774,6 +1833,10 @@ export class MarkdownToNotion implements INodeType {
 			};
 
 		} catch (error) {
+			if (error instanceof NodeOperationError) {
+				throw error;
+			}
+			
 			throw new NodeOperationError(
 				executeFunctions.getNode(),
 				`Failed to add blocks to Notion: ${error.message}`

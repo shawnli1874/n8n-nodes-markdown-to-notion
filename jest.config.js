@@ -1,6 +1,7 @@
 module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',
+  setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
   roots: ['<rootDir>/nodes', '<rootDir>/credentials'],
   testMatch: ['**/__tests__/**/*.test.ts'],
   collectCoverageFrom: [
@@ -23,14 +24,10 @@ module.exports = {
     '^.+\\.tsx?$': ['ts-jest', {
       tsconfig: {
         strict: false,
-        esModuleInterop: true
+        esModuleInterop: true,
+        noImplicitAny: false,
+        skipLibCheck: true
       }
     }]
-  },
-  transformIgnorePatterns: [
-    'node_modules/(?!(unified|remark-parse|remark-gfm|unist-util-visit|mdast-util-to-string)/)'
-  ],
-  moduleNameMapper: {
-    '^(\\.{1,2}/.*)\\.js$': '$1'
   }
 };
