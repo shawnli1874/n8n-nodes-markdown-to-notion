@@ -80,6 +80,7 @@
   },
   "dependencies": {
     "mdast-util-to-string": "^4.0.0",
+    "node-fetch": "^2.7.0",
     "remark": "^15.0.1",
     "remark-gfm": "^4.0.0",
     "remark-parse": "^11.0.0",

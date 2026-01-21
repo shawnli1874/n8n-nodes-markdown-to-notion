@@ -35,6 +35,19 @@ interface RichTextObject {
 	};
 }
 
+interface ToggleHeadingNode {
+	heading: NotionBlock;
+	children: NotionBlock[];
+	subHeadings: ToggleHeadingNode[];
+	level: number;
+	blockId?: string;
+}
+
+interface ToggleHeadingStructure {
+	rootNodes: ToggleHeadingNode[];
+	orphanBlocks: NotionBlock[];
+}
+
 export class MarkdownToNotion implements INodeType {
 	description: INodeTypeDescription = {
 		displayName: 'Markdown to Notion',
@@ -199,13 +212,26 @@ export class MarkdownToNotion implements INodeType {
 					);
 				}
 
-			const blocks = await MarkdownToNotion.convertMarkdownToNotionBlocks(
+			if (options.toggleHeadings) {
+				const result = await MarkdownToNotion.processToggleHeadingsWithAPI(
+					this,
+					pageId,
+					markdownContent,
+					options,
+					i
+				);
+				returnData.push(result);
+				continue;
+			}
+
+			const result = await MarkdownToNotion.convertMarkdownToNotionBlocks(
 				markdownContent,
 				options.preserveMath ?? true,
 				options.mathDelimiter ?? '$',
 				options.supportLatex ?? true,
-				options.toggleHeadings ?? false
+				false
 			);
+			const blocks = result as NotionBlock[];
 
 			const MAX_BLOCKS_PER_REQUEST = 100;
 			const allResponses: any[] = [];
@@ -360,13 +386,13 @@ export class MarkdownToNotion implements INodeType {
 		return result.join('\n');
 	}
 
-	private 	static async convertMarkdownToNotionBlocks(
+	private static async convertMarkdownToNotionBlocks(
 		markdown: string,
 		preserveMath: boolean = true,
 		mathDelimiter: string = '$',
 		supportLatex: boolean = true,
 		toggleHeadings: boolean = false
-	): Promise<NotionBlock[]> {
+	): Promise<NotionBlock[] | ToggleHeadingStructure> {
 		let processedMarkdown = markdown;
 		const mathPlaceholders: { [key: string]: string } = {};
 		
@@ -489,12 +515,89 @@ export class MarkdownToNotion implements INodeType {
 		const tree = processor.parse(processedMarkdown);
 		const blocks: NotionBlock[] = [];
 
-		for (const node of tree.children) {
-			const nodeBlocks = MarkdownToNotion.nodeToBlocks(node as any, mathPlaceholders, toggleHeadings);
+		if (toggleHeadings) {
+			return MarkdownToNotion.buildToggleHeadingStructure(tree.children, mathPlaceholders);
+		} else {
+			// Normal processing
+			for (const node of tree.children) {
+				const nodeBlocks = MarkdownToNotion.nodeToBlocks(node as any, mathPlaceholders, toggleHeadings);
+				blocks.push(...nodeBlocks);
+			}
+		}
+
+		return blocks;
+	}
+
+	private static processToggleHeadings(nodes: any[], mathPlaceholders: { [key: string]: string }): NotionBlock[] {
+		const blocks: NotionBlock[] = [];
+
+		for (const node of nodes) {
+			const nodeBlocks = MarkdownToNotion.nodeToBlocks(node as any, mathPlaceholders, true);
 			blocks.push(...nodeBlocks);
 		}
 
 		return blocks;
+	}
+
+	private static buildToggleHeadingStructure(nodes: any[], mathPlaceholders: { [key: string]: string }): ToggleHeadingStructure {
+		const structure: ToggleHeadingStructure = {
+			rootNodes: [],
+			orphanBlocks: []
+		};
+
+		let currentIndex = 0;
+		const nodeStack: ToggleHeadingNode[] = [];
+
+		while (currentIndex < nodes.length) {
+			const node = nodes[currentIndex];
+
+			if (node.type === 'heading') {
+				const headingLevel = node.depth;
+				const headingBlock = MarkdownToNotion.createHeadingBlock(node, mathPlaceholders, true);
+				
+				const headingNode: ToggleHeadingNode = {
+					heading: headingBlock,
+					children: [],
+					subHeadings: [],
+					level: headingLevel
+				};
+
+				// Pop stack until we find the correct parent level
+				while (nodeStack.length > 0 && nodeStack[nodeStack.length - 1].level >= headingLevel) {
+					nodeStack.pop();
+				}
+
+				// Add to parent or root
+				if (nodeStack.length === 0) {
+					structure.rootNodes.push(headingNode);
+				} else {
+					nodeStack[nodeStack.length - 1].subHeadings.push(headingNode);
+				}
+
+				nodeStack.push(headingNode);
+				currentIndex++;
+
+				// Collect content until next heading
+				while (currentIndex < nodes.length) {
+					const nextNode = nodes[currentIndex];
+					
+					if (nextNode.type === 'heading') {
+						break;
+					}
+
+					const contentBlocks = MarkdownToNotion.nodeToBlocks(nextNode, mathPlaceholders, false);
+					headingNode.children.push(...contentBlocks);
+					currentIndex++;
+				}
+			} else {
+				// Orphan content (no heading)
+				const orphanBlocks = MarkdownToNotion.nodeToBlocks(node, mathPlaceholders, false);
+				structure.orphanBlocks.push(...orphanBlocks);
+				currentIndex++;
+			}
+		}
+
+		return structure;
 	}
 
 	private static nodeToBlocks(node: any, mathPlaceholders: { [key: string]: string }, toggleHeadings: boolean = false): NotionBlock[] {
@@ -872,32 +975,19 @@ export class MarkdownToNotion implements INodeType {
 		
 		const richText = MarkdownToNotion.inlineNodesToRichText(node.children || [], mathPlaceholders);
 		
-		// If toggle headings is enabled, create toggle blocks instead of headings
+		const headingType = `heading_${level}` as 'heading_1' | 'heading_2' | 'heading_3' | 'heading_4';
+		
 		if (toggleHeadings) {
-			// Apply heading-level styling to toggle text
-			const headingColors = ['default', 'gray', 'brown', 'orange'];
-			const color = headingColors[level - 1] || 'default';
-			
-			richText.forEach(rt => {
-				if (rt.annotations) {
-					rt.annotations.bold = true;
-					rt.annotations.color = color;
-				} else {
-					rt.annotations = { bold: true, color };
-				}
-			});
-			
 			return {
 				object: 'block',
-				type: 'toggle',
-				toggle: {
+				type: headingType,
+				[headingType]: {
 					rich_text: richText,
+					color: 'default',
+					is_toggleable: true,
 				},
 			};
 		}
-		
-		// Regular heading blocks
-		const headingType = `heading_${level}` as 'heading_1' | 'heading_2' | 'heading_3' | 'heading_4';
 		
 		return {
 			object: 'block',
@@ -1374,5 +1464,306 @@ export class MarkdownToNotion implements INodeType {
 		
 		const mathCount = mathIndicators.filter(pattern => pattern.test(content)).length;
 		return mathCount >= 2;
+	}
+
+	private static async processToggleHeadingsWithAPI(
+		executeFunctions: IExecuteFunctions,
+		pageId: string,
+		markdownContent: string,
+		options: any,
+		itemIndex: number
+	): Promise<any> {
+		try {
+			const structure = await MarkdownToNotion.convertMarkdownToToggleStructure(
+				markdownContent,
+				options.preserveMath ?? true,
+				options.mathDelimiter ?? '$',
+				options.supportLatex ?? true
+			);
+
+			let totalBlocksAdded = 0;
+			const allResponses: any[] = [];
+			const warnings: string[] = [];
+
+			// Step 1: Add orphan blocks first
+			if (structure.orphanBlocks.length > 0) {
+				const orphanResult = await MarkdownToNotion.addBlocksToPage(
+					executeFunctions,
+					pageId,
+					structure.orphanBlocks
+				);
+				totalBlocksAdded += orphanResult.blocksAdded;
+				allResponses.push(orphanResult.response);
+				warnings.push(...orphanResult.warnings);
+			}
+
+			// Step 2: Process all heading nodes recursively
+			for (const rootNode of structure.rootNodes) {
+				const nodeResult = await MarkdownToNotion.processToggleHeadingNode(
+					executeFunctions,
+					pageId,
+					rootNode
+				);
+				totalBlocksAdded += nodeResult.blocksAdded;
+				allResponses.push(...nodeResult.responses);
+				warnings.push(...nodeResult.warnings);
+			}
+
+			return {
+				json: {
+					success: true,
+					pageId,
+					blocksAdded: totalBlocksAdded,
+					chunksProcessed: allResponses.length,
+					totalBlocks: totalBlocksAdded,
+					responses: allResponses,
+					warnings: warnings.length > 0 ? warnings : undefined,
+				},
+			};
+
+		} catch (error) {
+			throw new NodeOperationError(
+				executeFunctions.getNode(),
+				`Toggle headings processing failed: ${error.message}`,
+				{ itemIndex }
+			);
+		}
+	}
+
+	private static async convertMarkdownToToggleStructure(
+		markdown: string,
+		preserveMath: boolean = true,
+		mathDelimiter: string = '$',
+		supportLatex: boolean = true
+	): Promise<ToggleHeadingStructure> {
+		let processedMarkdown = markdown;
+		const mathPlaceholders: { [key: string]: string } = {};
+		let mathCounter = 1;
+
+		if (preserveMath) {
+			if (supportLatex && mathDelimiter === '$') {
+				const latexMatches: Array<{ match: string; formula: string; start: number; end: number }> = [];
+				
+				for (let pos = 0; pos < processedMarkdown.length - 1; pos++) {
+					if (processedMarkdown.substring(pos, pos + 2) === '$$') {
+						const startPos = pos;
+						pos += 2;
+						let depth = 1;
+						let formula = '';
+						
+						while (pos < processedMarkdown.length - 1 && depth > 0) {
+							const char = processedMarkdown[pos];
+							const nextChar = processedMarkdown[pos + 1];
+							
+							if (char === '$' && nextChar === '$') {
+								depth--;
+								if (depth === 0) break;
+								formula += char + nextChar;
+								pos += 2;
+							} else {
+								formula += char;
+								pos++;
+							}
+						}
+						
+						if (depth === 0 && formula.trim().length > 0 && formula.trim().length <= 100) {
+							const fullMatch = processedMarkdown.substring(startPos, pos + 2);
+							latexMatches.push({
+								match: fullMatch,
+								formula: formula.trim(),
+								start: startPos,
+								end: pos + 2
+							});
+						}
+					}
+					
+					latexMatches.reverse().forEach(({ match, formula }) => {
+						const placeholder = `MATHPLACEHOLDER${mathCounter}MATHPLACEHOLDER`;
+						mathPlaceholders[placeholder] = `$${formula}$`;
+						mathCounter++;
+						processedMarkdown = processedMarkdown.replace(match, placeholder);
+					});
+				}
+			}
+			
+			if (mathDelimiter === '$') {
+				let lastIndex = 0;
+				const parts: string[] = [];
+				const regex = /\$([^$\n\r]+?)\$/g;
+				let match: RegExpExecArray | null;
+				
+				while ((match = regex.exec(processedMarkdown))) {
+					const fullMatch = match[0];
+					const formula = match[1];
+					const trimmedFormula = formula.trim();
+					
+					parts.push(processedMarkdown.substring(lastIndex, match.index));
+					
+					if (trimmedFormula.length === 0 || trimmedFormula.length > 100) {
+						parts.push(fullMatch);
+					} else if (MarkdownToNotion.isLikelyPrice(trimmedFormula)) {
+						parts.push(fullMatch);
+					} else if (MarkdownToNotion.isLikelyMathFormula(trimmedFormula)) {
+						const placeholder = `MATHPLACEHOLDER${mathCounter}MATHPLACEHOLDER`;
+						mathPlaceholders[placeholder] = fullMatch;
+						mathCounter++;
+						parts.push(placeholder);
+					} else {
+						parts.push(fullMatch);
+					}
+					
+					lastIndex = regex.lastIndex;
+				}
+				
+				parts.push(processedMarkdown.substring(lastIndex));
+				processedMarkdown = parts.join('');
+			} else {
+				const mathRegex = new RegExp(`\\${mathDelimiter}([^${mathDelimiter}\\n\\r]+?)\\${mathDelimiter}`, 'g');
+				processedMarkdown = markdown.replace(mathRegex, (match, formula) => {
+					const trimmedFormula = formula.trim();
+					
+					if (trimmedFormula.length > 100) {
+						return match;
+					}
+					
+					if (MarkdownToNotion.isLikelyMathFormula(trimmedFormula)) {
+						const placeholder = `MATHPLACEHOLDER${mathCounter}MATHPLACEHOLDER`;
+						mathPlaceholders[placeholder] = match;
+						mathCounter++;
+						return placeholder;
+					}
+					
+					return match;
+				});
+			}
+		}
+
+		processedMarkdown = MarkdownToNotion.sanitizeFencedCodeBlocks(processedMarkdown);
+		processedMarkdown = MarkdownToNotion.preprocessToggleBlocks(processedMarkdown);
+
+		const processor = unified()
+			.use(remarkParse)
+			.use(remarkGfm);
+
+		const tree = processor.parse(processedMarkdown);
+		return MarkdownToNotion.buildToggleHeadingStructure(tree.children, mathPlaceholders);
+	}
+
+	private static async processToggleHeadingNode(
+		executeFunctions: IExecuteFunctions,
+		parentId: string,
+		node: ToggleHeadingNode
+	): Promise<{ blocksAdded: number; responses: any[]; warnings: string[] }> {
+		let totalBlocksAdded = 0;
+		const allResponses: any[] = [];
+		const warnings: string[] = [];
+
+		// Step 1: Create the heading block
+		const headingResult = await MarkdownToNotion.addBlocksToPage(
+			executeFunctions,
+			parentId,
+			[node.heading]
+		);
+		
+		totalBlocksAdded += headingResult.blocksAdded;
+		allResponses.push(headingResult.response);
+		warnings.push(...headingResult.warnings);
+
+		if (headingResult.response?.results?.[0]?.id) {
+			const headingBlockId = headingResult.response.results[0].id;
+			node.blockId = headingBlockId;
+
+			// Step 2: Add direct children to the heading
+			if (node.children.length > 0) {
+				const childrenResult = await MarkdownToNotion.addBlocksToPage(
+					executeFunctions,
+					headingBlockId,
+					node.children
+				);
+				totalBlocksAdded += childrenResult.blocksAdded;
+				allResponses.push(childrenResult.response);
+				warnings.push(...childrenResult.warnings);
+			}
+
+			// Step 3: Process sub-headings recursively
+			for (const subHeading of node.subHeadings) {
+				const subResult = await MarkdownToNotion.processToggleHeadingNode(
+					executeFunctions,
+					headingBlockId,
+					subHeading
+				);
+				totalBlocksAdded += subResult.blocksAdded;
+				allResponses.push(...subResult.responses);
+				warnings.push(...subResult.warnings);
+			}
+		}
+
+		return {
+			blocksAdded: totalBlocksAdded,
+			responses: allResponses,
+			warnings
+		};
+	}
+
+	private static async addBlocksToPage(
+		executeFunctions: IExecuteFunctions,
+		pageId: string,
+		blocks: NotionBlock[]
+	): Promise<{ response: any; blocksAdded: number; warnings: string[] }> {
+		if (blocks.length === 0) {
+			return {
+				response: { results: [] },
+				blocksAdded: 0,
+				warnings: []
+			};
+		}
+
+		const normalizedResult = MarkdownToNotion.normalizeBlocksForNotion(blocks);
+		const normalizedBlocks = normalizedResult.blocks;
+		const warnings = normalizedResult.warnings;
+
+		const requestOptions: IRequestOptions = {
+			method: 'PATCH',
+			url: `https://api.notion.com/v1/blocks/${pageId}/children`,
+			body: {
+				children: normalizedBlocks,
+			},
+			json: true,
+		};
+
+		try {
+			const response = await executeFunctions.helpers.httpRequestWithAuthentication.call(
+				executeFunctions,
+				'notionApi',
+				requestOptions,
+			);
+
+			if (!response || typeof response !== 'object') {
+				throw new NodeOperationError(
+					executeFunctions.getNode(),
+					`Unexpected Notion API response: ${JSON.stringify(response)}`
+				);
+			}
+
+			if (response.object === 'error') {
+				const errorDetails = MarkdownToNotion.parseNotionError(response);
+				throw new NodeOperationError(
+					executeFunctions.getNode(),
+					`Notion API error: ${errorDetails}`
+				);
+			}
+
+			return {
+				response,
+				blocksAdded: response.results?.length || 0,
+				warnings
+			};
+
+		} catch (error) {
+			throw new NodeOperationError(
+				executeFunctions.getNode(),
+				`Failed to add blocks to Notion: ${error.message}`
+			);
+		}
 	}
 }

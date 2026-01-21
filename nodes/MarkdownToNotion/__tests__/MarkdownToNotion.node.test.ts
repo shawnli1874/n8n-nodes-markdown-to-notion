@@ -11,7 +11,14 @@ describe('MarkdownToNotion Node', () => {
 		mockExecuteFunctions = {
 			getInputData: jest.fn(() => [{ json: {} }]),
 			getNodeParameter: jest.fn(),
-			getNode: jest.fn(() => ({ name: 'Test Node', type: 'test', typeVersion: 1, position: [0, 0] })),
+			getNode: jest.fn(() => ({ 
+			id: 'test-node-id',
+			name: 'Test Node', 
+			type: 'test', 
+			typeVersion: 1, 
+			position: [0, 0],
+			parameters: {}
+		})),
 			continueOnFail: jest.fn(() => false),
 			helpers: {
 				httpRequestWithAuthentication: jest.fn(),
