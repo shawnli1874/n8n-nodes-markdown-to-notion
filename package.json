@@ -59,6 +59,8 @@
     "!dist/**/__tests__",
     "!dist/**/*.test.*",
     "!dist/**/*.spec.*",
+    "!dist/**/*.fixed.*",
+    "!dist/**/*.backup",
     "README.md",
     "LICENSE",
     "CHANGELOG.md"

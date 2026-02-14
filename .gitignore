@@ -79,3 +79,25 @@ jspm_packages/
 
 # DynamoDB Local files
 .dynamodb/
+
+# Debug and manual test scripts (use Jest for automated tests)
+test-real-*.js
+test-toggle-*.js
+test-complete-*.js
+test-correct-*.js
+test-large-*.js
+real-performance-test.js
+performance-test.js
+final-demo.js
+debug-*.js
+analyze-*.js
+compare-*.js
+verify-*.js
+test-scripts/
+
+# Backup and fixup files
+*.backup
+*.fixed.*
+
+# Publish scripts
+publish.sh
